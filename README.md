@@ -1,5 +1,7 @@
 # Rust Desktop Pets (GP-Chan & GEMMI-Chan)
 
+<img src="rust-pets/app.png" width="50%" />
+
 Rust로 작성된 고성능 GPU 가속 데스크톱 펫 애플리케이션입니다. GP-Chan과 GEMMI-Chan 캐릭터를 통합하여 지원하며, 실시간 시스템 리소스 모니터링 기능을 제공합니다.
 
 본 프로젝트는 아래의 원본 Python 프로젝트를 **Rust**로 포팅하고 기능을 통합 및 개선한 버전입니다:
