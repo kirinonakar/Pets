@@ -184,17 +184,28 @@ impl eframe::App for PetApp {
                 let dist = dist_vec.length();
 
                 if let Some(pet) = &mut self.pet {
-                    if pet.current_action != "typing" { // Don't follow if typing
+                    if ctx.is_context_menu_open() {
+                        // If menu is open, stop walking and show a different status
+                        if pet.current_action == "walk" {
+                            pet.set_action("idle");
+                        }
+                        if self.status_text == "추적중..." {
+                            self.status_text = "무엇을 할까요?".to_string();
+                            self.status_timeout = time + 1.0;
+                        }
+                    } else if pet.current_action != "typing" && self.action_timeout == 0.0 { 
                         // 1. Facing logic
                         if dist_vec.x < -30.0 { pet.facing_right = false; }
                         else if dist_vec.x > 30.0 { pet.facing_right = true; }
 
                         // 2. Movement & Animation
                         let mouse_rel = mouse_abs - window_pos;
-                        let in_window = mouse_rel.x >= 0.0 && mouse_rel.x <= 300.0 
-                                     && mouse_rel.y >= 0.0 && mouse_rel.y <= 500.0;
+                        // Tighten the 'in-window' check to the actual pet area (160x160 + some margin)
+                        // This allows the pet to keep moving if the mouse is in the transparent part of the larger window.
+                        let in_window = mouse_rel.x >= 0.0 && mouse_rel.x <= 160.0 
+                                     && mouse_rel.y >= 60.0 && mouse_rel.y <= 220.0;
 
-                        if !in_window && dist > 50.0 {
+                        if !in_window && dist > 15.0 {
                             if dist > 800.0 {
                                 if pet.current_action == "walk" {
                                     pet.set_action("idle");
@@ -207,12 +218,12 @@ impl eframe::App for PetApp {
                                     self.status_text = "추적중...".to_string();
                                     self.status_timeout = time + 2.0;
                                 }
-                                // Much slower and capped movement for natural walking
-                                let lerp_factor = 0.002; 
+                                // Slower, more natural movement
+                                let lerp_factor = 0.003; 
                                 let move_vec = dist_vec * lerp_factor;
-                                // Cap the speed to keep it natural
-                                let capped_move = if move_vec.length() > 1.5 {
-                                    move_vec.normalized() * 1.5
+                                // Reduced speed cap for slower movement
+                                let capped_move = if move_vec.length() > 1.2 {
+                                    move_vec.normalized() * 1.2
                                 } else {
                                     move_vec
                                 };
@@ -221,9 +232,15 @@ impl eframe::App for PetApp {
                                 self.wander_target = None; // Reset wander if following mouse
                             }
                         } else {
-                            // Only reset to idle if not wandering and not doing a manual action
+                            // Arrived! Show "왔는가" when stopping
                             if pet.current_action == "walk" && self.pending_action.is_none() && self.wander_target.is_none() && self.action_timeout == 0.0 {
                                 pet.set_action("idle");
+                                self.status_text = "왔는가".to_string();
+                                self.status_timeout = time + 2.0;
+                            } else if in_window && pet.current_action == "idle" && self.status_timeout < time {
+                                // Hover greeting
+                                self.status_text = "ㅎㅇㅎㅇ".to_string();
+                                self.status_timeout = time + 1.5;
                             }
                         }
                     }
@@ -232,7 +249,7 @@ impl eframe::App for PetApp {
         }
 
         // 3. Automatic Patrolling (Wander)
-        if self.wander_target.is_some() {
+        if self.wander_target.is_some() && !ctx.is_context_menu_open() {
             if let (Some(target), Some(outer_rect)) = (self.wander_target, ctx.input(|i| i.viewport().outer_rect)) {
                 let current_pos = outer_rect.min;
                 let dist_vec = target - current_pos;
@@ -242,7 +259,7 @@ impl eframe::App for PetApp {
                     self.wander_target = None;
                     if let Some(pet) = &mut self.pet {
                         pet.set_action("idle");
-                        self.status_text = "복귀완!".to_string();
+                        self.status_text = "왔는가".to_string();
                         self.status_timeout = ctx.input(|i| i.time) + 2.0;
                     }
                 } else {
