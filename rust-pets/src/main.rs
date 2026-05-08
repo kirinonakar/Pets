@@ -137,12 +137,40 @@ impl eframe::App for PetApp {
             pet.update_animation(time);
         }
 
-// Moved update_animation to the end of the update function
-
         // Window properties
         ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
+
+        // --- GLOBAL MOUSE DATA (Moved up for passthrough logic) ---
+        let mouse_state = self.device_state.get_mouse();
+        let (mx, my) = mouse_state.coords;
+        let ppp = ctx.pixels_per_point();
+        let mouse_abs = egui::pos2(mx as f32 / ppp, my as f32 / ppp);
+        
+        let mut is_hovering_interactive = false;
+        let mut mouse_rel = egui::vec2(-1000.0, -1000.0);
+
+        if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
+            let window_pos = outer_rect.min;
+            mouse_rel = mouse_abs - window_pos;
+            
+            // Check if mouse is over the active area (Pet, Stats, Bubble)
+            // Pet area: approx [0, 180] x [10, 190]
+            if mouse_rel.x >= 0.0 && mouse_rel.x <= 190.0 && mouse_rel.y >= 5.0 && mouse_rel.y <= 195.0 {
+                is_hovering_interactive = true;
+            }
+        }
+
+        // 5. Mouse Passthrough Control
+        // We set passthrough based on our manual hover check using global coordinates.
+        // This ensures the window becomes interactive BEFORE the user clicks.
+        if ctx.is_context_menu_open() || is_hovering_interactive {
+            ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(false));
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(true));
+        }
+        // -----------------------------------------------------------
 
         // 0. Screen Boundary Check (Snap back if off-screen and not being dragged)
         let is_dragging = ctx.input(|i| i.pointer.any_down());
@@ -185,17 +213,10 @@ impl eframe::App for PetApp {
 
         // 2. Global Mouse Following & Window Movement Logic
         if self.mouse_follow {
-            let mouse_state = self.device_state.get_mouse();
-            let (mx, my) = mouse_state.coords;
-            
-            // Adjust for High DPI scaling (Physical Pixels -> Logical Points)
-            let ppp = ctx.pixels_per_point();
-            let mouse_abs = egui::pos2(mx as f32 / ppp, my as f32 / ppp);
-
             if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                 let window_pos = outer_rect.min;
-                // Pet center in screen coordinates (Approximate based on top-aligned layout)
-                let pet_screen_center = window_pos + egui::vec2(80.0, 140.0);
+                // Pet center in screen coordinates (Updated for more compact top margin)
+                let pet_screen_center = window_pos + egui::vec2(80.0, 110.0);
                 let dist_vec = mouse_abs - pet_screen_center;
                 let dist = dist_vec.length();
 
@@ -215,11 +236,9 @@ impl eframe::App for PetApp {
                         else if dist_vec.x > 30.0 { pet.facing_right = true; }
 
                         // 2. Movement & Animation
-                        let mouse_rel = mouse_abs - window_pos;
-                        // Tighten the 'in-window' check to the actual pet area (160x160 + some margin)
-                        // This allows the pet to keep moving if the mouse is in the transparent part of the larger window.
-                        let in_window = mouse_rel.x >= 0.0 && mouse_rel.x <= 160.0 
-                                     && mouse_rel.y >= 60.0 && mouse_rel.y <= 220.0;
+                        // Tighten the 'in-window' check to the actual pet area
+                        let in_window = mouse_rel.x >= 0.0 && mouse_rel.x <= 180.0 
+                                     && mouse_rel.y >= 10.0 && mouse_rel.y <= 190.0;
 
                         if !in_window && dist > 15.0 {
                             if dist > 800.0 {
@@ -333,119 +352,120 @@ impl eframe::App for PetApp {
                     }
                 };
 
-                // Background interaction
-                let bg_response = ui.interact(ui.max_rect(), ui.id().with("bg"), egui::Sense::click());
-                bg_response.context_menu(|ui| show_menu(ui, self));
-
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.add_space(60.0); // Reduced space for a more compact feel
+                    ui.add_space(30.0); // Compact top space
                     
                     let mut pet_rect = None;
 
                     // 1. Pet and Stats Row
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = -15.0; // Pull left
-                        
-                        let mut pet_response = None;
-                        if let Some(pet) = &mut self.pet {
-                            if let Some(texture) = pet.current_texture() {
-                                let size = egui::vec2(pet.config.manifest.cell_size as f32, pet.config.manifest.cell_size as f32);
-                                let uv = if pet.facing_right {
-                                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0))
-                                } else {
-                                    egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0))
-                                };
+                    egui::Frame::none()
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = -15.0; // Pull left
+                                
+                                let mut pet_response = None;
+                                if let Some(pet) = &mut self.pet {
+                                    if let Some(texture) = pet.current_texture() {
+                                        let size = egui::vec2(pet.config.manifest.cell_size as f32, pet.config.manifest.cell_size as f32);
+                                        let uv = if pet.facing_right {
+                                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0))
+                                        } else {
+                                            egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0))
+                                        };
 
-                                let (rect, response) = ui.allocate_exact_size(size, egui::Sense::drag().union(egui::Sense::click()));
-                                ui.painter().image(texture.id(), rect, uv, egui::Color32::WHITE);
-                                pet_rect = Some(rect);
-                                
-                                if response.dragged() {
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                                    if pet.current_action != "drag_dangle" {
-                                        pet.set_action("drag_dangle", time);
+                                        // Use click_and_drag() to capture interactions
+                                        let sense = egui::Sense::click_and_drag();
+                                        let (rect, response) = ui.allocate_exact_size(size, sense);
+                                        ui.painter().image(texture.id(), rect, uv, egui::Color32::WHITE);
+                                        pet_rect = Some(rect);
                                         
-                                        use rand::seq::SliceRandom;
-                                        let drag_labels = ["놔라 휴먼!", "살려줘요!", "대롱대롱~", "어디가요!", "히익!", "우와아악!"];
-                                        let mut rng = rand::thread_rng();
-                                        if let Some(label) = drag_labels.choose(&mut rng) {
-                                            self.status_text = label.to_string();
-                                        }
-                                        self.status_timeout = time + 2.0;
-                                    }
-                                } else if response.drag_stopped() {
-                                    if pet.current_action == "drag_dangle" {
-                                        pet.set_action("idle", time);
-                                        self.status_text = "살았다!".to_string();
-                                        self.status_timeout = time + 2.0;
-                                    }
-                                }
-                                
-                                if response.double_clicked() {
-                                    self.pending_action = Some("bonk".to_string());
-                                } else if response.clicked() && !response.dragged() {
-                                    if let Some(pet) = &self.pet {
-                                        let mut available = vec!["wave", "cheer", "surprise"];
-                                        for extra in ["half_right", "welcome_agi", "agi_box", "think", "pout", "sweep"] {
-                                            if pet.textures.contains_key(extra) {
-                                                available.push(extra);
+                                        if response.dragged() {
+                                            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                                            if pet.current_action != "drag_dangle" {
+                                                pet.set_action("drag_dangle", time);
+                                                
+                                                use rand::seq::SliceRandom;
+                                                let drag_labels = ["놔라 휴먼!", "살려줘요!", "대롱대롱~", "어디가요!", "히익!", "우와아악!"];
+                                                let mut rng = rand::thread_rng();
+                                                if let Some(label) = drag_labels.choose(&mut rng) {
+                                                    self.status_text = label.to_string();
+                                                }
+                                                self.status_timeout = time + 2.0;
+                                            }
+                                        } else if response.drag_stopped() {
+                                            if pet.current_action == "drag_dangle" {
+                                                pet.set_action("idle", time);
+                                                self.status_text = "살았다!".to_string();
+                                                self.status_timeout = time + 2.0;
                                             }
                                         }
-                                        use rand::seq::SliceRandom;
-                                        let mut rng = rand::thread_rng();
-                                        if let Some(action) = available.choose(&mut rng) {
-                                            self.pending_action = Some(action.to_string());
+                                        
+                                        if response.double_clicked() {
+                                            self.pending_action = Some("bonk".to_string());
+                                        } else if response.clicked() && !response.dragged() {
+                                            if let Some(pet) = &self.pet {
+                                                let mut available = vec!["wave", "cheer", "surprise"];
+                                                for extra in ["half_right", "welcome_agi", "agi_box", "think", "pout", "sweep"] {
+                                                    if pet.textures.contains_key(extra) {
+                                                        available.push(extra);
+                                                    }
+                                                }
+                                                use rand::seq::SliceRandom;
+                                                let mut rng = rand::thread_rng();
+                                                if let Some(action) = available.choose(&mut rng) {
+                                                    self.pending_action = Some(action.to_string());
+                                                }
+                                            }
                                         }
+                                        pet_response = Some(response);
+                                    } else {
+                                        ui.add_space(pet.config.manifest.cell_size as f32);
                                     }
                                 }
-                                pet_response = Some(response);
-                            } else {
-                                ui.add_space(pet.config.manifest.cell_size as f32);
-                            }
-                        }
 
-                        // Stats Column attached to Pet
-                        if self.show_stats {
-                            ui.vertical(|ui| {
-                                ui.add_space(50.0); // Move slightly up
-                                egui::Frame::none()
-                                    .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
-                                    .rounding(5.0)
-                                    .inner_margin(4.0)
-                                    .show(ui, |ui| {
-                                        ui.set_max_width(25.0); // Reduce length (width)
-                                        ui.spacing_mut().item_spacing.y = 5.0;
+                                // Stats Column attached to Pet
+                                if self.show_stats {
+                                    ui.vertical(|ui| {
+                                        ui.add_space(50.0); // Move slightly up
+                                        egui::Frame::none()
+                                            .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
+                                            .rounding(5.0)
+                                            .inner_margin(4.0)
+                                            .show(ui, |ui| {
+                                                ui.set_max_width(25.0); // Reduce length (width)
+                                                ui.spacing_mut().item_spacing.y = 5.0;
 
-                                        fn mini_resource_bar(ui: &mut egui::Ui, label: &str, val: f32, color: egui::Color32) {
-                                            ui.vertical(|ui| {
-                                                ui.label(egui::RichText::new(label).size(8.0).color(egui::Color32::WHITE));
-                                                let progress = (val / 100.0).clamp(0.0, 1.0);
-                                                ui.add(egui::ProgressBar::new(progress)
-                                                    .fill(color)
-                                                    .desired_height(4.0)
-                                                    .desired_width(25.0));
+                                                fn mini_resource_bar(ui: &mut egui::Ui, label: &str, val: f32, color: egui::Color32) {
+                                                    ui.vertical(|ui| {
+                                                        ui.label(egui::RichText::new(label).size(8.0).color(egui::Color32::WHITE));
+                                                        let progress = (val / 100.0).clamp(0.0, 1.0);
+                                                        ui.add(egui::ProgressBar::new(progress)
+                                                            .fill(color)
+                                                            .desired_height(4.0)
+                                                            .desired_width(25.0));
+                                                    });
+                                                }
+
+                                                mini_resource_bar(ui, "CPU", self.stats.cpu_usage, egui::Color32::from_rgb(100, 200, 255));
+                                                mini_resource_bar(ui, "RAM", self.stats.ram_usage_pct, egui::Color32::from_rgb(100, 255, 150));
+                                                
+                                                if let Some(gpu) = self.stats.gpu_usage {
+                                                    mini_resource_bar(ui, "GPU", gpu, egui::Color32::from_rgb(200, 150, 255));
+                                                }
+                                                if let Some(vram) = self.stats.gpu_mem_pct {
+                                                    mini_resource_bar(ui, "VRM", vram, egui::Color32::from_rgb(255, 200, 100));
+                                                }
                                             });
-                                        }
-
-                                        mini_resource_bar(ui, "CPU", self.stats.cpu_usage, egui::Color32::from_rgb(100, 200, 255));
-                                        mini_resource_bar(ui, "RAM", self.stats.ram_usage_pct, egui::Color32::from_rgb(100, 255, 150));
-                                        
-                                        if let Some(gpu) = self.stats.gpu_usage {
-                                            mini_resource_bar(ui, "GPU", gpu, egui::Color32::from_rgb(200, 150, 255));
-                                        }
-                                        if let Some(vram) = self.stats.gpu_mem_pct {
-                                            mini_resource_bar(ui, "VRM", vram, egui::Color32::from_rgb(255, 200, 100));
-                                        }
                                     });
-                            });
-                        }
+                                }
 
-                        // Context menu for pet
-                        if let Some(response) = pet_response {
-                            response.context_menu(|ui| show_menu(ui, self));
-                        }
-                    });
+                                // Context menu for pet
+                                if let Some(response) = pet_response {
+                                    response.context_menu(|ui| show_menu(ui, self));
+                                }
+                            });
+                        });
 
                     // 2. Speech Bubble Overlay (Drawn last to be on top)
                     if let Some(rect) = pet_rect {
@@ -466,7 +486,7 @@ impl eframe::App for PetApp {
                                         .show(ui, |ui| {
                                             ui.set_max_width(bubble_width);
                                             ui.label(egui::RichText::new(&self.status_text).size(12.0).color(egui::Color32::BLACK).strong());
-                                        });
+                                        }).response.context_menu(|ui| show_menu(ui, self));
                                     
                                     // Speech bubble tail (Triangle)
                                     ui.horizontal(|ui| {
@@ -606,6 +626,7 @@ fn main() -> eframe::Result<()> {
             rgba: rgba.into_raw(),
             width,
             height,
+            
         })
     } else {
         None
@@ -616,7 +637,7 @@ fn main() -> eframe::Result<()> {
             .with_transparent(true)
             .with_decorations(false)
             .with_always_on_top()
-            .with_inner_size([300.0, 500.0])
+            .with_inner_size([600.0, 800.0])
             .with_icon(icon_data.unwrap_or_default()),
         ..Default::default()
     };
@@ -630,15 +651,13 @@ fn main() -> eframe::Result<()> {
 
 fn clamp_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
     if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
-        // The physical window is 300x500, but the pet is located at the top-left (approx 160x160).
-        // To allow the pet to reach the bottom and right edges of the screen, we clamp
-        // based on the pet's effective area rather than the full window size.
-        let effective_width = 220.0;  // Pet (160) + Stats/Margin
-        let effective_height = 240.0; // Top space (60) + Pet (160) + Margin
+        // Updated clamping for the new 240x260 window size.
+        let effective_width = 200.0;  // Pet (160) + Stats/Margin
+        let effective_height = 220.0; // Top space (30) + Pet (160) + Margin
         
         egui::pos2(
             pos.x.clamp(0.0, (monitor_size.x - effective_width).max(0.0)),
-            pos.y.clamp(-30.0, (monitor_size.y - effective_height).max(0.0)) // Allow speech bubble to go slightly off-top
+            pos.y.clamp(-20.0, (monitor_size.y - effective_height).max(0.0)) // Allow speech bubble to go slightly off-top
         )
     } else {
         pos
