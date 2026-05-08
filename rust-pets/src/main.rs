@@ -170,7 +170,7 @@ impl eframe::App for PetApp {
                                 pet.set_action("walk");
                             }
                             // Much slower movement for natural walking
-                            let lerp_factor = 0.015; 
+                            let lerp_factor = 0.005; 
                             let new_pos = window_pos + dist_vec * lerp_factor;
                             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
                         }
@@ -228,15 +228,13 @@ impl eframe::App for PetApp {
                 let bg_response = ui.interact(ui.max_rect(), ui.id().with("bg"), egui::Sense::click());
                 bg_response.context_menu(|ui| show_menu(ui, self));
 
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     
-                    // Left Column: Speech Bubble + Pet
-                    ui.vertical(|ui| {
-                        ui.set_min_width(160.0);
-                        
+                    // 1. Speech Bubble Row
+                    ui.horizontal(|ui| {
+                        ui.add_space(20.0); // Slight offset for the bubble
                         if time < self.status_timeout {
-                            ui.add_space(20.0);
                             egui::Frame::none()
                                 .fill(egui::Color32::from_rgba_premultiplied(255, 255, 255, 240))
                                 .rounding(15.0)
@@ -247,9 +245,16 @@ impl eframe::App for PetApp {
                                     ui.label(egui::RichText::new(&self.status_text).size(15.0).color(egui::Color32::BLACK).strong());
                                 });
                         } else {
-                            ui.add_space(60.0);
+                            ui.add_space(40.0); // Maintain height
                         }
+                    });
 
+                    ui.add_space(10.0);
+
+                    // 2. Pet and Stats Row
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0; // Attach closely
+                        
                         let mut pet_response = None;
                         if let Some(pet) = &mut self.pet {
                             if let Some(texture) = pet.current_texture() {
@@ -265,11 +270,11 @@ impl eframe::App for PetApp {
                                 
                                 if response.dragged() {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                                    if pet.current_action != "drag" {
-                                        pet.set_action("drag");
+                                    if pet.current_action != "drag_dangle" {
+                                        pet.set_action("drag_dangle");
                                     }
                                 } else if response.drag_stopped() {
-                                    if pet.current_action == "drag" {
+                                    if pet.current_action == "drag_dangle" {
                                         pet.set_action("idle");
                                     }
                                 }
@@ -282,47 +287,47 @@ impl eframe::App for PetApp {
                                 ui.add_space(pet.config.manifest.cell_size as f32);
                             }
                         }
-                        
-                        // Show menu after pet borrow is finished
+
+                        // Stats Column attached to Pet
+                        if self.show_stats {
+                            ui.vertical(|ui| {
+                                ui.add_space(10.0); // Align with pet's top area
+                                egui::Frame::none()
+                                    .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
+                                    .rounding(5.0)
+                                    .inner_margin(4.0)
+                                    .show(ui, |ui| {
+                                        ui.set_max_width(50.0);
+                                        ui.spacing_mut().item_spacing.y = 5.0;
+
+                                        fn mini_resource_bar(ui: &mut egui::Ui, label: &str, val: f32, color: egui::Color32) {
+                                            ui.vertical(|ui| {
+                                                ui.label(egui::RichText::new(label).size(8.0).color(egui::Color32::WHITE));
+                                                let progress = (val / 100.0).clamp(0.0, 1.0);
+                                                ui.add(egui::ProgressBar::new(progress)
+                                                    .fill(color)
+                                                    .desired_height(4.0));
+                                            });
+                                        }
+
+                                        mini_resource_bar(ui, "CPU", self.stats.cpu_usage, egui::Color32::from_rgb(100, 200, 255));
+                                        mini_resource_bar(ui, "RAM", self.stats.ram_usage_pct, egui::Color32::from_rgb(100, 255, 150));
+                                        
+                                        if let Some(gpu) = self.stats.gpu_usage {
+                                            mini_resource_bar(ui, "GPU", gpu, egui::Color32::from_rgb(200, 150, 255));
+                                        }
+                                        if let Some(vram) = self.stats.gpu_mem_pct {
+                                            mini_resource_bar(ui, "VRM", vram, egui::Color32::from_rgb(255, 200, 100));
+                                        }
+                                    });
+                            });
+                        }
+
+                        // Context menu for pet
                         if let Some(response) = pet_response {
                             response.context_menu(|ui| show_menu(ui, self));
                         }
                     });
-
-                    // Right Column: Resource Graphs (Smaller)
-                    if self.show_stats {
-                        ui.vertical(|ui| {
-                            ui.add_space(80.0);
-                            egui::Frame::none()
-                                .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
-                                .rounding(5.0)
-                                .inner_margin(4.0)
-                                .show(ui, |ui| {
-                                    ui.set_max_width(50.0); // Shrink width
-                                    ui.spacing_mut().item_spacing.y = 5.0;
-
-                                    fn mini_resource_bar(ui: &mut egui::Ui, label: &str, val: f32, color: egui::Color32) {
-                                        ui.vertical(|ui| {
-                                            ui.label(egui::RichText::new(label).size(8.0).color(egui::Color32::WHITE));
-                                            let progress = (val / 100.0).clamp(0.0, 1.0);
-                                            ui.add(egui::ProgressBar::new(progress)
-                                                .fill(color)
-                                                .desired_height(4.0)); // Shrink height
-                                        });
-                                    }
-
-                                    mini_resource_bar(ui, "CPU", self.stats.cpu_usage, egui::Color32::from_rgb(100, 200, 255));
-                                    mini_resource_bar(ui, "RAM", self.stats.ram_usage_pct, egui::Color32::from_rgb(100, 255, 150));
-                                    
-                                    if let Some(gpu) = self.stats.gpu_usage {
-                                        mini_resource_bar(ui, "GPU", gpu, egui::Color32::from_rgb(200, 150, 255));
-                                    }
-                                    if let Some(vram) = self.stats.gpu_mem_pct {
-                                        mini_resource_bar(ui, "VRM", vram, egui::Color32::from_rgb(255, 200, 100));
-                                    }
-                                });
-                        });
-                    }
                 });
             });
 
