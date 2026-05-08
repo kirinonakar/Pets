@@ -133,6 +133,10 @@ impl eframe::App for PetApp {
             self.last_update = time;
         }
 
+        if let Some(pet) = &mut self.pet {
+            pet.update_animation(time);
+        }
+
 // Moved update_animation to the end of the update function
 
         // Window properties
@@ -273,7 +277,7 @@ impl eframe::App for PetApp {
                         self.status_text = "왔는가".to_string();
                         self.status_timeout = time + 2.0;
                     } else {
-                        let move_step = dist_vec.normalized() * 0.45; // Slower, more natural patrol
+                        let move_step = dist_vec.normalized() * 0.65; // Slightly faster patrol
                         let next_pos = clamp_to_screen(ctx, current_pos + move_step);
                         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(next_pos));
                         
@@ -590,11 +594,6 @@ impl eframe::App for PetApp {
         }
 
         ctx.request_repaint();
-
-        // 5. Final Animation Update
-        if let Some(pet) = &mut self.pet {
-            pet.update_animation(time);
-        }
     }
 }
 

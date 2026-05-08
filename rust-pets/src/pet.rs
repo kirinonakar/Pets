@@ -60,15 +60,20 @@ impl PetState {
     pub fn update_animation(&mut self, time: f64) {
         if let Some(action) = self.config.manifest.actions.get(&self.current_action) {
             if let Some(textures) = self.textures.get(&self.current_action) {
-                if textures.len() > 1 {
+                let len = textures.len();
+                if len > 1 {
                     let duration = action.frame_duration_ms as f64 / 1000.0;
                     if duration > 0.0 {
-                        let elapsed = time - self.last_frame_time;
-                        if elapsed > duration {
-                            // Calculate how many frames to advance
-                            let frames_to_advance = (elapsed / duration) as usize;
-                            self.frame_index = (self.frame_index + frames_to_advance) % textures.len();
+                        // If last_frame_time is 0, initialize it to current time to start fresh
+                        if self.last_frame_time == 0.0 {
                             self.last_frame_time = time;
+                        }
+                        
+                        let elapsed = time - self.last_frame_time;
+                        if elapsed >= duration {
+                            let advance = (elapsed / duration).floor() as usize;
+                            self.frame_index = (self.frame_index + advance) % len;
+                            self.last_frame_time += advance as f64 * duration;
                         }
                     }
                 } else {
