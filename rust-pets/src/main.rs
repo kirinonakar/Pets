@@ -143,8 +143,8 @@ impl eframe::App for PetApp {
 
             if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                 let window_pos = outer_rect.min;
-                // Pet center in screen coordinates
-                let pet_screen_center = window_pos + egui::vec2(80.0, 350.0);
+                // Pet center in screen coordinates (Approximate based on top-aligned layout)
+                let pet_screen_center = window_pos + egui::vec2(80.0, 140.0);
                 let dist_vec = mouse_abs - pet_screen_center;
                 let dist = dist_vec.length();
 
@@ -170,7 +170,7 @@ impl eframe::App for PetApp {
                                 pet.set_action("walk");
                             }
                             // Much slower movement for natural walking
-                            let lerp_factor = 0.005; 
+                            let lerp_factor = 0.002; 
                             let new_pos = window_pos + dist_vec * lerp_factor;
                             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
                         }
@@ -253,7 +253,7 @@ impl eframe::App for PetApp {
 
                     // 2. Pet and Stats Row
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0; // Attach closely
+                        ui.spacing_mut().item_spacing.x = -15.0; // Pull left
                         
                         let mut pet_response = None;
                         if let Some(pet) = &mut self.pet {
@@ -291,13 +291,13 @@ impl eframe::App for PetApp {
                         // Stats Column attached to Pet
                         if self.show_stats {
                             ui.vertical(|ui| {
-                                ui.add_space(10.0); // Align with pet's top area
+                                ui.add_space(50.0); // Move slightly up (from 100)
                                 egui::Frame::none()
                                     .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
                                     .rounding(5.0)
                                     .inner_margin(4.0)
                                     .show(ui, |ui| {
-                                        ui.set_max_width(50.0);
+                                        ui.set_max_width(25.0); // Reduce length (width)
                                         ui.spacing_mut().item_spacing.y = 5.0;
 
                                         fn mini_resource_bar(ui: &mut egui::Ui, label: &str, val: f32, color: egui::Color32) {
@@ -306,7 +306,8 @@ impl eframe::App for PetApp {
                                                 let progress = (val / 100.0).clamp(0.0, 1.0);
                                                 ui.add(egui::ProgressBar::new(progress)
                                                     .fill(color)
-                                                    .desired_height(4.0));
+                                                    .desired_height(4.0)
+                                                    .desired_width(25.0));
                                             });
                                         }
 
