@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod monitor;
 mod config;
 mod pet;
@@ -205,9 +207,16 @@ impl eframe::App for PetApp {
                                     self.status_text = "추적중...".to_string();
                                     self.status_timeout = time + 2.0;
                                 }
-                                // Much slower movement for natural walking
-                                let lerp_factor = 0.005; // Slightly faster for better feedback
-                                let new_pos = window_pos + dist_vec * lerp_factor;
+                                // Much slower and capped movement for natural walking
+                                let lerp_factor = 0.002; 
+                                let move_vec = dist_vec * lerp_factor;
+                                // Cap the speed to keep it natural
+                                let capped_move = if move_vec.length() > 1.5 {
+                                    move_vec.normalized() * 1.5
+                                } else {
+                                    move_vec
+                                };
+                                let new_pos = window_pos + capped_move;
                                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
                                 self.wander_target = None; // Reset wander if following mouse
                             }
@@ -237,7 +246,7 @@ impl eframe::App for PetApp {
                         self.status_timeout = ctx.input(|i| i.time) + 2.0;
                     }
                 } else {
-                    let move_step = dist_vec.normalized() * 0.8; // Slightly faster
+                    let move_step = dist_vec.normalized() * 0.45; // Slower, more natural patrol
                     ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(current_pos + move_step));
                     if let Some(pet) = &mut self.pet {
                         if pet.current_action != "walk" { 
@@ -529,12 +538,26 @@ impl eframe::App for PetApp {
 }
 
 fn main() -> eframe::Result<()> {
+    // Load Icon
+    let icon_data = if let Ok(image) = image::load_from_memory(include_bytes!("../app.png")) {
+        let rgba = image.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        Some(egui::IconData {
+            rgba: rgba.into_raw(),
+            width,
+            height,
+        })
+    } else {
+        None
+    };
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_transparent(true)
             .with_decorations(false)
             .with_always_on_top()
-            .with_inner_size([300.0, 500.0]),
+            .with_inner_size([300.0, 500.0])
+            .with_icon(icon_data.unwrap_or_default()),
         ..Default::default()
     };
 
