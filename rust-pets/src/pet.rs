@@ -59,23 +59,41 @@ impl PetState {
 
     pub fn update_animation(&mut self, time: f64) {
         if let Some(action) = self.config.manifest.actions.get(&self.current_action) {
-            if !action.frames.is_empty() {
-                let duration = action.frame_duration_ms as f64 / 1000.0;
-                if time - self.last_frame_time > duration {
-                    self.frame_index = (self.frame_index + 1) % action.frames.len();
-                    self.last_frame_time = time;
+            if let Some(textures) = self.textures.get(&self.current_action) {
+                if !textures.is_empty() {
+                    let duration = action.frame_duration_ms as f64 / 1000.0;
+                    if time - self.last_frame_time > duration {
+                        self.frame_index = (self.frame_index + 1) % textures.len();
+                        self.last_frame_time = time;
+                    }
+                    
+                    // Safety: Ensure frame_index is always in bounds if textures changed or reloaded
+                    if self.frame_index >= textures.len() {
+                        self.frame_index = 0;
+                    }
                 }
             }
         }
     }
 
     pub fn current_texture(&self) -> Option<&TextureHandle> {
-        self.textures.get(&self.current_action).and_then(|frames| frames.get(self.frame_index))
+        if let Some(frames) = self.textures.get(&self.current_action) {
+            if frames.is_empty() { return None; }
+            let idx = self.frame_index % frames.len();
+            frames.get(idx)
+        } else {
+            None
+        }
     }
 
     pub fn set_action(&mut self, action: &str) {
         if self.current_action != action {
-            self.current_action = action.to_string();
+            if self.textures.contains_key(action) {
+                self.current_action = action.to_string();
+            } else {
+                // Fallback to idle if the pet doesn't support this action
+                self.current_action = "idle".to_string();
+            }
             self.frame_index = 0;
         }
     }

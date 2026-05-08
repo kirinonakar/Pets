@@ -353,11 +353,18 @@ impl eframe::App for PetApp {
                                 if response.double_clicked() {
                                     self.pending_action = Some("bonk".to_string());
                                 } else if response.clicked() && !response.dragged() {
-                                    use rand::seq::SliceRandom;
-                                    let actions = ["wave", "cheer", "surprise", "half_right", "welcome_agi"];
-                                    let mut rng = rand::thread_rng();
-                                    if let Some(action) = actions.choose(&mut rng) {
-                                        self.pending_action = Some(action.to_string());
+                                    if let Some(pet) = &self.pet {
+                                        let mut available = vec!["wave", "cheer", "surprise"];
+                                        for extra in ["half_right", "welcome_agi", "agi_box", "think", "pout", "sweep"] {
+                                            if pet.textures.contains_key(extra) {
+                                                available.push(extra);
+                                            }
+                                        }
+                                        use rand::seq::SliceRandom;
+                                        let mut rng = rand::thread_rng();
+                                        if let Some(action) = available.choose(&mut rng) {
+                                            self.pending_action = Some(action.to_string());
+                                        }
                                     }
                                 }
                                 pet_response = Some(response);
@@ -495,10 +502,16 @@ impl eframe::App for PetApp {
                     
                     use rand::Rng;
                     let mut rng = rand::thread_rng();
-                    let total_weight: i32 = choices.iter().map(|c| c.2).sum();
+                    let filtered_choices: Vec<_> = choices.into_iter()
+                        .filter(|(act, _, _)| pet.textures.contains_key(*act))
+                        .collect();
+                    
+                    let total_weight: i32 = filtered_choices.iter().map(|c| c.2).sum();
+                    if total_weight == 0 { return; }
+                    
                     let mut pick = rng.gen_range(0..total_weight);
                     
-                    for (act, label, weight) in choices {
+                    for (act, label, weight) in filtered_choices {
                         if pick < weight {
                             if act == "walk" {
                                 let dx = rng.gen_range(-300.0..300.0);
