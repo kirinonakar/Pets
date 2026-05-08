@@ -380,8 +380,11 @@ impl eframe::App for PetApp {
                                         ui.painter().image(texture.id(), rect, uv, egui::Color32::WHITE);
                                         pet_rect = Some(rect);
                                         
-                                        if response.dragged() {
+                                        if response.drag_started() {
                                             ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                                        }
+                                        
+                                        if response.dragged() {
                                             if pet.current_action != "drag_dangle" {
                                                 pet.set_action("drag_dangle", time);
                                                 
