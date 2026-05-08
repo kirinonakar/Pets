@@ -16,3 +16,4 @@ chrono = "0.4"
 tokio = { version = "1", features = ["full"] }
 walkdir = "2.3"
 include_dir = "0.7"
+device_query = "2.1"

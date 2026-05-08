@@ -4,6 +4,7 @@ mod pet;
 
 use eframe::egui;
 use monitor::{Monitor, SystemStats};
+use device_query::{DeviceQuery, DeviceState};
 use config::PetConfig;
 use pet::PetState;
 use std::path::Path;
@@ -45,6 +46,7 @@ struct PetApp {
     mouse_follow: bool,
     show_stats: bool,
     pending_action: Option<String>,
+    device_state: DeviceState,
 }
 
 impl PetApp {
@@ -94,6 +96,7 @@ impl PetApp {
             mouse_follow: true,
             show_stats: true,
             pending_action: None,
+            device_state: DeviceState::new(),
         }
     }
 
@@ -129,47 +132,49 @@ impl eframe::App for PetApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
 
-        // Mouse Following & Window Movement Logic
+        // Global Mouse Following & Window Movement Logic
         if self.mouse_follow {
-            if let Some(mouse_pos) = ctx.input(|i| i.pointer.latest_pos()) {
-                // Adjust center based on left-column placement (pet is ~160x160 at the bottom-left)
-                let pet_center = egui::vec2(80.0, 300.0); 
-                let dist_vec = mouse_pos.to_vec2() - pet_center;
+            let mouse_state = self.device_state.get_mouse();
+            let (mx, my) = mouse_state.coords;
+            
+            // Adjust for High DPI scaling (Physical Pixels -> Logical Points)
+            let ppp = ctx.pixels_per_point();
+            let mouse_abs = egui::pos2(mx as f32 / ppp, my as f32 / ppp);
+
+            if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
+                let window_pos = outer_rect.min;
+                // Pet center in screen coordinates
+                let pet_screen_center = window_pos + egui::vec2(80.0, 350.0);
+                let dist_vec = mouse_abs - pet_screen_center;
                 let dist = dist_vec.length();
 
                 if let Some(pet) = &mut self.pet {
                     // 1. Facing logic
-                    if dist_vec.x < -20.0 { pet.facing_right = false; }
-                    else if dist_vec.x > 20.0 { pet.facing_right = true; }
+                    if dist_vec.x < -30.0 { pet.facing_right = false; }
+                    else if dist_vec.x > 30.0 { pet.facing_right = true; }
 
-                    // 2. Movement & Animation logic
-                    let in_window = mouse_pos.x >= 0.0 && mouse_pos.x <= 300.0 
-                                 && mouse_pos.y >= 0.0 && mouse_pos.y <= 500.0;
+                    // 2. Movement & Animation
+                    let mouse_rel = mouse_abs - window_pos;
+                    let in_window = mouse_rel.x >= 0.0 && mouse_rel.x <= 300.0 
+                                 && mouse_rel.y >= 0.0 && mouse_rel.y <= 500.0;
 
-                    if !in_window && dist > 20.0 { 
-                        if dist > 500.0 {
-                            // Too far! Give up
+                    if !in_window && dist > 50.0 {
+                        if dist > 800.0 {
                             if pet.current_action == "walk" {
                                 pet.set_action("idle");
-                                self.status_text = "놓침...".to_string();
+                                self.status_text = "너무 빨라요! 놓침...".to_string();
                                 self.status_timeout = time + 2.0;
                             }
                         } else {
-                            // Switch to walk animation
                             if pet.current_action != "walk" && self.pending_action.is_none() {
                                 pet.set_action("walk");
                             }
-
-                            if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
-                                let current_pos = outer_rect.min;
-                                let target_pos = current_pos + dist_vec;
-                                let lerp_factor = 0.05; // Slightly faster for responsiveness
-                                let new_pos = current_pos + (target_pos - current_pos) * lerp_factor;
-                                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
-                            }
+                            // Much slower movement for natural walking
+                            let lerp_factor = 0.015; 
+                            let new_pos = window_pos + dist_vec * lerp_factor;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
                         }
                     } else {
-                        // Stop walking when inside or very close
                         if pet.current_action == "walk" && self.pending_action.is_none() {
                             pet.set_action("idle");
                         }
@@ -183,23 +188,22 @@ impl eframe::App for PetApp {
             .show(ctx, |ui| {
                 let available_pets_copy = self.available_pets.clone();
                 
-                // Interact with the whole panel for context menu
-                let bg_response = ui.interact(ui.max_rect(), ui.id().with("bg"), egui::Sense::click());
-                bg_response.context_menu(|ui| {
+                // Define the common context menu
+                let show_menu = |ui: &mut egui::Ui, app: &mut PetApp| {
                     ui.label(egui::RichText::new("설정").strong());
-                    ui.checkbox(&mut self.mouse_follow, "마우스 따라오기");
-                    ui.checkbox(&mut self.show_stats, "그래프 표시");
+                    ui.checkbox(&mut app.mouse_follow, "마우스 따라오기");
+                    ui.checkbox(&mut app.show_stats, "그래프 표시");
                     ui.separator();
                     
                     ui.label(egui::RichText::new("액션 선택").strong());
-                    if let Some(pet) = &self.pet {
+                    if let Some(pet) = &app.pet {
                         egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                             let mut action_names: Vec<String> = pet.config.manifest.actions.keys().cloned().collect();
                             action_names.sort();
                             for action_name in action_names {
                                 let display_name = get_action_label(&action_name);
                                 if ui.selectable_label(pet.current_action == action_name, display_name).clicked() {
-                                    self.pending_action = Some(action_name.clone());
+                                    app.pending_action = Some(action_name.clone());
                                     ui.close_menu();
                                 }
                             }
@@ -209,16 +213,20 @@ impl eframe::App for PetApp {
                     ui.separator();
                     ui.label(egui::RichText::new("캐릭터").strong());
                     for name in &available_pets_copy {
-                        if ui.radio(self.current_pet_name == *name, name).clicked() {
-                            self.pending_pet_switch = Some(name.clone());
+                        if ui.radio(app.current_pet_name == *name, name).clicked() {
+                            app.pending_pet_switch = Some(name.clone());
                             ui.close_menu();
                         }
                     }
                     ui.separator();
                     if ui.button("종료").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                });
+                };
+
+                // Background interaction
+                let bg_response = ui.interact(ui.max_rect(), ui.id().with("bg"), egui::Sense::click());
+                bg_response.context_menu(|ui| show_menu(ui, self));
 
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 10.0;
@@ -227,7 +235,6 @@ impl eframe::App for PetApp {
                     ui.vertical(|ui| {
                         ui.set_min_width(160.0);
                         
-                        // Speech Bubble (Improved Aesthetics)
                         if time < self.status_timeout {
                             ui.add_space(20.0);
                             egui::Frame::none()
@@ -243,8 +250,8 @@ impl eframe::App for PetApp {
                             ui.add_space(60.0);
                         }
 
-                        // Pet Rendering
-                        if let Some(pet) = &self.pet {
+                        let mut pet_response = None;
+                        if let Some(pet) = &mut self.pet {
                             if let Some(texture) = pet.current_texture() {
                                 let size = egui::vec2(pet.config.manifest.cell_size as f32, pet.config.manifest.cell_size as f32);
                                 let uv = if pet.facing_right {
@@ -254,54 +261,64 @@ impl eframe::App for PetApp {
                                 };
 
                                 let (rect, response) = ui.allocate_exact_size(size, egui::Sense::drag().union(egui::Sense::click()));
-                                
-                                // Draw image using painter to avoid hover visuals
                                 ui.painter().image(texture.id(), rect, uv, egui::Color32::WHITE);
                                 
                                 if response.dragged() {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                                    if pet.current_action != "drag" {
+                                        pet.set_action("drag");
+                                    }
+                                } else if response.drag_stopped() {
+                                    if pet.current_action == "drag" {
+                                        pet.set_action("idle");
+                                    }
                                 }
                                 
-                                // Double Click -> Bonk!
                                 if response.double_clicked() {
                                     self.pending_action = Some("bonk".to_string());
                                 }
+                                pet_response = Some(response);
                             } else {
                                 ui.add_space(pet.config.manifest.cell_size as f32);
                             }
                         }
+                        
+                        // Show menu after pet borrow is finished
+                        if let Some(response) = pet_response {
+                            response.context_menu(|ui| show_menu(ui, self));
+                        }
                     });
 
-                    // Right Column: Resource Graphs
+                    // Right Column: Resource Graphs (Smaller)
                     if self.show_stats {
                         ui.vertical(|ui| {
-                            ui.add_space(60.0);
+                            ui.add_space(80.0);
                             egui::Frame::none()
                                 .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
                                 .rounding(5.0)
-                                .inner_margin(5.0)
+                                .inner_margin(4.0)
                                 .show(ui, |ui| {
-                                    ui.set_max_width(70.0);
-                                    ui.spacing_mut().item_spacing.y = 8.0;
+                                    ui.set_max_width(50.0); // Shrink width
+                                    ui.spacing_mut().item_spacing.y = 5.0;
 
-                                    fn small_resource_bar(ui: &mut egui::Ui, label: &str, val: f32, color: egui::Color32) {
+                                    fn mini_resource_bar(ui: &mut egui::Ui, label: &str, val: f32, color: egui::Color32) {
                                         ui.vertical(|ui| {
-                                            ui.label(egui::RichText::new(label).size(9.0).color(egui::Color32::WHITE));
+                                            ui.label(egui::RichText::new(label).size(8.0).color(egui::Color32::WHITE));
                                             let progress = (val / 100.0).clamp(0.0, 1.0);
                                             ui.add(egui::ProgressBar::new(progress)
                                                 .fill(color)
-                                                .desired_height(6.0));
+                                                .desired_height(4.0)); // Shrink height
                                         });
                                     }
 
-                                    small_resource_bar(ui, "CPU", self.stats.cpu_usage, egui::Color32::from_rgb(100, 200, 255));
-                                    small_resource_bar(ui, "RAM", self.stats.ram_usage_pct, egui::Color32::from_rgb(100, 255, 150));
+                                    mini_resource_bar(ui, "CPU", self.stats.cpu_usage, egui::Color32::from_rgb(100, 200, 255));
+                                    mini_resource_bar(ui, "RAM", self.stats.ram_usage_pct, egui::Color32::from_rgb(100, 255, 150));
                                     
                                     if let Some(gpu) = self.stats.gpu_usage {
-                                        small_resource_bar(ui, "GPU", gpu, egui::Color32::from_rgb(200, 150, 255));
+                                        mini_resource_bar(ui, "GPU", gpu, egui::Color32::from_rgb(200, 150, 255));
                                     }
                                     if let Some(vram) = self.stats.gpu_mem_pct {
-                                        small_resource_bar(ui, "VRM", vram, egui::Color32::from_rgb(255, 200, 100));
+                                        mini_resource_bar(ui, "VRM", vram, egui::Color32::from_rgb(255, 200, 100));
                                     }
                                 });
                         });
