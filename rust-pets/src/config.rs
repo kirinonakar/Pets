@@ -4,7 +4,8 @@ use include_dir::{include_dir, Dir};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Action {
-    pub display_name: String,
+    #[serde(rename = "display_name")]
+    pub _display_name: String,
     pub frames: Vec<String>,
     pub frame_duration_ms: u64,
 }
