@@ -14,9 +14,11 @@ Rust로 작성된 고성능 GPU 가속 데스크톱 펫 애플리케이션입니
 - **드래그 앤 드롭 이동**: 캐릭터를 클릭하여 드래그하면 윈도우 전체를 자유롭게 이동할 수 있습니다.
 - **부드러운 애니메이션**: `egui`를 활용한 고성능 스프라이트 애니메이션 시스템.
 - **세련된 UI**: 투명 배경 및 '항상 위' 설정을 지원하는 깔끔한 오버레이 창.
-- **완벽한 한글 지원**: 시스템 폰트(맑은 고딕)를 사용하여 한글 깨짐 현상을 근본적으로 해결했습니다.
 
 ## 🚀 시작하기
+### 📥 Download
+You can download the latest version from the [Releases Page](https://github.com/kirinonakar/Pets/releases).
+
 
 ### 사전 요구 사항
 
@@ -26,13 +28,35 @@ Rust로 작성된 고성능 GPU 가속 데스크톱 펫 애플리케이션입니
 
 ### 설치 및 실행
 
-1. 저장소 클론:
+1. 프로젝트 폴더 생성 및 이동:
    ```bash
-   git clone https://github.com/your-username/rust-pets.git
-   cd rust-pets
+   mkdir Pets
+   cd Pets
    ```
-2. 애플리케이션 빌드 및 실행:
+2. 원본 Python 프로젝트 및 Rust 프로젝트 클론:
    ```bash
+   # 원본 프로젝트 (애셋 소스)
+   git clone https://github.com/gpgpchan-svg/GP-Chan.git
+   git clone https://github.com/gpgpchan-svg/GEMMI-Chan.git
+
+   # Rust 프로젝트
+   git clone https://github.com/kirinonakar/Pets.git
+   ```
+
+### 📂 권장 폴더 구조
+
+본 프로젝트는 원본 Python 프로젝트의 애셋을 참조하거나 활용할 수 있으므로, 아래와 같은 구조로 배치하는 것을 권장합니다:
+
+```text
+Pets/
+├── GP-Chan/          # 원본 GP-Chan 저장소
+├── GEMMI-Chan/       # 원본 GEMMI-Chan 저장소
+└── rust-pets/        # 현재 Rust 프로젝트 (여기에서 실행)
+```
+
+3. 애플리케이션 빌드 및 실행:
+   ```bash
+   cd rust-pets
    cargo run --release
    ```
 

@@ -337,11 +337,20 @@ impl eframe::App for PetApp {
                                 } else if response.drag_stopped() {
                                     if pet.current_action == "drag_dangle" {
                                         pet.set_action("idle");
+                                        self.status_text = "살았다!".to_string();
+                                        self.status_timeout = time + 2.0;
                                     }
                                 }
                                 
                                 if response.double_clicked() {
                                     self.pending_action = Some("bonk".to_string());
+                                } else if response.clicked() && !response.dragged() {
+                                    use rand::seq::SliceRandom;
+                                    let actions = ["wave", "cheer", "surprise", "half_right", "welcome_agi"];
+                                    let mut rng = rand::thread_rng();
+                                    if let Some(action) = actions.choose(&mut rng) {
+                                        self.pending_action = Some(action.to_string());
+                                    }
                                 }
                                 pet_response = Some(response);
                             } else {
