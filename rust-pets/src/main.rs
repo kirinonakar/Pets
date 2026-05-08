@@ -131,9 +131,7 @@ impl eframe::App for PetApp {
             self.last_update = time;
         }
 
-        if let Some(pet) = &mut self.pet {
-            pet.update_animation(time);
-        }
+// Moved update_animation to the end of the update function
 
         // Window properties
         ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(true));
@@ -208,13 +206,14 @@ impl eframe::App for PetApp {
                                     self.status_timeout = time + 2.0;
                                 }
                                 // Much slower movement for natural walking
-                                let lerp_factor = 0.002; 
+                                let lerp_factor = 0.005; // Slightly faster for better feedback
                                 let new_pos = window_pos + dist_vec * lerp_factor;
                                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
                                 self.wander_target = None; // Reset wander if following mouse
                             }
                         } else {
-                            if pet.current_action == "walk" && self.pending_action.is_none() && self.wander_target.is_none() {
+                            // Only reset to idle if not wandering and not doing a manual action
+                            if pet.current_action == "walk" && self.pending_action.is_none() && self.wander_target.is_none() && self.action_timeout == 0.0 {
                                 pet.set_action("idle");
                             }
                         }
@@ -238,7 +237,7 @@ impl eframe::App for PetApp {
                         self.status_timeout = ctx.input(|i| i.time) + 2.0;
                     }
                 } else {
-                    let move_step = dist_vec.normalized() * 0.5;
+                    let move_step = dist_vec.normalized() * 0.8; // Slightly faster
                     ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(current_pos + move_step));
                     if let Some(pet) = &mut self.pet {
                         if pet.current_action != "walk" { 
@@ -262,12 +261,6 @@ impl eframe::App for PetApp {
                     ui.label(egui::RichText::new("설정").strong());
                     ui.checkbox(&mut app.mouse_follow, "마우스 따라오기");
                     ui.checkbox(&mut app.show_stats, "그래프 표시");
-                    if ui.button("중앙으로 복귀").clicked() {
-                        // Return to center of screen (approximate)
-                        let screen_size = egui::vec2(1920.0, 1080.0); // Fallback if no monitor info
-                        app.wander_target = Some(egui::pos2(screen_size.x / 2.0 - 150.0, screen_size.y / 2.0 - 250.0));
-                        ui.close_menu();
-                    }
                     ui.separator();
                     
                     ui.label(egui::RichText::new("액션 선택").strong());
@@ -527,6 +520,11 @@ impl eframe::App for PetApp {
         }
 
         ctx.request_repaint();
+
+        // 5. Final Animation Update
+        if let Some(pet) = &mut self.pet {
+            pet.update_animation(time);
+        }
     }
 }
 
