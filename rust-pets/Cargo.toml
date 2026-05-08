@@ -1,0 +1,18 @@
+[package]
+name = "rust-pets"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.27.2"
+egui = "0.27.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sysinfo = "0.30"
+nvml-wrapper = "0.10"
+image = { version = "0.24", features = ["png"] }
+rand = "0.8"
+chrono = "0.4"
+tokio = { version = "1", features = ["full"] }
+walkdir = "2.3"
+include_dir = "0.7"
