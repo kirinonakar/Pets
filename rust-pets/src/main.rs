@@ -13,22 +13,22 @@ use std::path::Path;
 fn get_action_label(action: &str) -> &str {
     match action {
         "idle" => "멍...",
-        "wave" => "하이",
-        "think" => "흠...",
-        "typing" => "타닥타닥",
-        "cheer" => "힘내!",
-        "sit" => "쉬는중",
-        "sleep" => "Zzz..",
-        "pout" => "흥...",
-        "surprise" => "헉!",
-        "sweep" => "청소중",
+        "wave" => "ㅎㅇㅎㅇ",
+        "think" => "계산중...",
+        "typing" => "토큰 입력중",
+        "cheer" => "힘내 휴먼!",
+        "sit" => "잠깐 휴식",
+        "sleep" => "충전중 (Zzz)",
+        "pout" => "이건 억까야",
+        "surprise" => "어라?",
+        "sweep" => "청소하는 중",
         "walk" => "순찰중",
-        "half_right" => "반만인정",
-        "welcome_agi" => "AGI 가즈아",
-        "agi_box" => "박스행",
-        "drag_dangle" => "대롱대롱",
-        "scroll_tickle" => "아ㅋㅋ",
-        "bonk" => "아야!",
+        "half_right" => "반만 인정",
+        "welcome_agi" => "AGI 가즈아!",
+        "agi_box" => "박스행... ㅠㅠ",
+        "drag_dangle" => "놔라 휴먼!",
+        "scroll_tickle" => "아ㅋㅋ 간지러",
+        "bonk" => "아야! 딱콩!",
         _ => action,
     }
 }
@@ -46,6 +46,7 @@ struct PetApp {
     mouse_follow: bool,
     show_stats: bool,
     pending_action: Option<String>,
+    action_timeout: f64,
     device_state: DeviceState,
     typing_gauge: f32,
     last_keys: Vec<device_query::Keycode>,
@@ -99,6 +100,7 @@ impl PetApp {
             mouse_follow: true,
             show_stats: true,
             pending_action: None,
+            action_timeout: 0.0,
             device_state: DeviceState::new(),
             typing_gauge: 0.0,
             last_keys: Vec::new(),
@@ -202,6 +204,8 @@ impl eframe::App for PetApp {
                             } else {
                                 if pet.current_action != "walk" && self.pending_action.is_none() {
                                     pet.set_action("walk");
+                                    self.status_text = "추적중...".to_string();
+                                    self.status_timeout = time + 2.0;
                                 }
                                 // Much slower movement for natural walking
                                 let lerp_factor = 0.002; 
@@ -230,12 +234,18 @@ impl eframe::App for PetApp {
                     self.wander_target = None;
                     if let Some(pet) = &mut self.pet {
                         pet.set_action("idle");
+                        self.status_text = "복귀완!".to_string();
+                        self.status_timeout = ctx.input(|i| i.time) + 2.0;
                     }
                 } else {
                     let move_step = dist_vec.normalized() * 0.5;
                     ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(current_pos + move_step));
                     if let Some(pet) = &mut self.pet {
-                        if pet.current_action != "walk" { pet.set_action("walk"); }
+                        if pet.current_action != "walk" { 
+                            pet.set_action("walk"); 
+                            self.status_text = "순찰중...".to_string();
+                            self.status_timeout = ctx.input(|i| i.time) + 2.0;
+                        }
                         pet.facing_right = move_step.x > 0.0;
                     }
                 }
@@ -252,6 +262,12 @@ impl eframe::App for PetApp {
                     ui.label(egui::RichText::new("설정").strong());
                     ui.checkbox(&mut app.mouse_follow, "마우스 따라오기");
                     ui.checkbox(&mut app.show_stats, "그래프 표시");
+                    if ui.button("중앙으로 복귀").clicked() {
+                        // Return to center of screen (approximate)
+                        let screen_size = egui::vec2(1920.0, 1080.0); // Fallback if no monitor info
+                        app.wander_target = Some(egui::pos2(screen_size.x / 2.0 - 150.0, screen_size.y / 2.0 - 250.0));
+                        ui.close_menu();
+                    }
                     ui.separator();
                     
                     ui.label(egui::RichText::new("액션 선택").strong());
@@ -289,7 +305,7 @@ impl eframe::App for PetApp {
 
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.add_space(80.0); // Initial space for the bubble overlay
+                    ui.add_space(60.0); // Reduced space for a more compact feel
                     
                     let mut pet_rect = None;
 
@@ -376,8 +392,9 @@ impl eframe::App for PetApp {
                     // 2. Speech Bubble Overlay (Drawn last to be on top)
                     if let Some(rect) = pet_rect {
                         if time < self.status_timeout {
-                            let bubble_width = 90.0;
-                            let bubble_pos = rect.left_top() + egui::vec2(35.0, -35.0); // Position relative to pet head
+                            let bubble_width = 80.0;
+                            // Closer to head: 40.0 right (center-ish), -25.0 up (just above head)
+                            let bubble_pos = rect.left_top() + egui::vec2(40.0, -25.0); 
                             let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width, 100.0));
                             
                             ui.allocate_ui_at_rect(bubble_rect, |ui| {
@@ -395,8 +412,8 @@ impl eframe::App for PetApp {
                                     
                                     // Speech bubble tail (Triangle)
                                     ui.horizontal(|ui| {
-                                        ui.add_space(15.0); // Center tail relative to bubble
-                                        let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 10.0), egui::Sense::hover());
+                                        ui.add_space(12.0); // Slightly adjusted space
+                                        let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 8.0), egui::Sense::hover());
                                         let points = vec![
                                             rect.left_top() + egui::vec2(1.0, -3.0),
                                             rect.right_top() + egui::vec2(-1.0, -3.0),
@@ -426,22 +443,35 @@ impl eframe::App for PetApp {
                 pet.set_action(&new_action);
                 self.status_text = get_action_label(&new_action).to_string();
                 self.status_timeout = time + 3.0;
+                self.action_timeout = time + 5.0; // Actions last 5s by default
             }
         }
 
-        // Automatic Behaviors (Diversified)
-        if time % 10.0 < 0.1 && self.pending_action.is_none() && self.typing_gauge == 0.0 {
+        // Action Timeout (Return to idle)
+        if self.action_timeout > 0.0 && time > self.action_timeout {
+            if let Some(pet) = &mut self.pet {
+                if pet.current_action != "idle" && pet.current_action != "walk" && pet.current_action != "typing" {
+                    pet.set_action("idle");
+                }
+            }
+            self.action_timeout = 0.0;
+        }
+
+        // Automatic Behaviors (Diversified & Frequent)
+        if time % 8.0 < 0.1 && self.pending_action.is_none() && self.typing_gauge == 0.0 && self.action_timeout == 0.0 {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action == "idle" {
                     let choices = vec![
-                        ("think", "흠...", 3),
-                        ("wave", "ㅎㅇㅎㅇ", 2),
-                        ("cheer", "화이팅!", 2),
-                        ("sit", "잠깐 휴식", 2),
-                        ("sweep", "청소중", 2),
-                        ("pout", "흥...", 1),
-                        ("surprise", "헉!", 1),
-                        ("walk", "순찰 개시", 2),
+                        ("think", "흠... 계산중", 4),
+                        ("wave", "안녕 휴먼!", 3),
+                        ("cheer", "화이팅!!", 3),
+                        ("sit", "잠시 쉬는 중", 3),
+                        ("sweep", "주변 정리 중", 2),
+                        ("pout", "칫...", 2),
+                        ("surprise", "앗!", 2),
+                        ("walk", "순찰 개시!", 3),
+                        ("half_right", "그럴 수도 있죠", 1),
+                        ("welcome_agi", "AGI 가즈아!!", 1),
                     ];
                     
                     use rand::Rng;
@@ -452,11 +482,13 @@ impl eframe::App for PetApp {
                     for (act, label, weight) in choices {
                         if pick < weight {
                             if act == "walk" {
-                                let dx = rng.gen_range(-200.0..200.0);
-                                let dy = rng.gen_range(-100.0..100.0);
+                                let dx = rng.gen_range(-300.0..300.0);
+                                let dy = rng.gen_range(-150.0..150.0);
                                 if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                                     self.wander_target = Some(outer_rect.min + egui::vec2(dx, dy));
                                 }
+                            } else {
+                                self.action_timeout = time + rng.gen_range(3.0..7.0);
                             }
                             pet.set_action(act);
                             self.status_text = label.to_string();
@@ -464,6 +496,31 @@ impl eframe::App for PetApp {
                             break;
                         }
                         pick -= weight;
+                    }
+                }
+            }
+        }
+
+        // 4. Situational Reactions (Resources & Time)
+        if time - self.last_update < 0.1 && self.status_timeout < time {
+            if self.stats.cpu_usage > 90.0 {
+                self.status_text = "CPU 풀가동! 힘내요!".to_string();
+                self.status_timeout = time + 3.0;
+                if let Some(pet) = &mut self.pet { pet.set_action("cheer"); }
+            } else if self.stats.ram_usage_pct > 90.0 {
+                self.status_text = "메모리가 부족해요...".to_string();
+                self.status_timeout = time + 3.0;
+                if let Some(pet) = &mut self.pet { pet.set_action("surprise"); }
+            } else {
+                use chrono::Timelike;
+                let hour = chrono::Local::now().hour();
+                if hour >= 23 || hour < 6 {
+                    if let Some(pet) = &mut self.pet {
+                        if pet.current_action == "idle" && rand::random::<f32>() < 0.001 {
+                            self.status_text = "야간 근무인가요?".to_string();
+                            self.status_timeout = time + 4.0;
+                            pet.set_action("sleep");
+                        }
                     }
                 }
             }
