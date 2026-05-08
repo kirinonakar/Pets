@@ -47,6 +47,9 @@ struct PetApp {
     show_stats: bool,
     pending_action: Option<String>,
     device_state: DeviceState,
+    typing_gauge: f32,
+    last_keys: Vec<device_query::Keycode>,
+    wander_target: Option<egui::Pos2>,
 }
 
 impl PetApp {
@@ -97,6 +100,9 @@ impl PetApp {
             show_stats: true,
             pending_action: None,
             device_state: DeviceState::new(),
+            typing_gauge: 0.0,
+            last_keys: Vec::new(),
+            wander_target: None,
         }
     }
 
@@ -132,7 +138,34 @@ impl eframe::App for PetApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
 
-        // Global Mouse Following & Window Movement Logic
+        // 1. Typing Detection
+        let current_keys = self.device_state.get_keys();
+        let new_presses = current_keys.iter().filter(|k| !self.last_keys.contains(k)).count();
+        self.last_keys = current_keys;
+
+        if new_presses > 0 {
+            self.typing_gauge = (self.typing_gauge + new_presses as f32 * 50.0).min(300.0);
+        } else {
+            self.typing_gauge = (self.typing_gauge - 2.0).max(0.0);
+        }
+
+        if self.typing_gauge > 100.0 {
+            if let Some(pet) = &mut self.pet {
+                if pet.current_action != "typing" && pet.current_action != "drag_dangle" {
+                    pet.set_action("typing");
+                    self.status_text = "타닥타닥...".to_string();
+                    self.status_timeout = time + 2.0;
+                }
+            }
+        } else if self.typing_gauge == 0.0 {
+            if let Some(pet) = &mut self.pet {
+                if pet.current_action == "typing" {
+                    pet.set_action("idle");
+                }
+            }
+        }
+
+        // 2. Global Mouse Following & Window Movement Logic
         if self.mouse_follow {
             let mouse_state = self.device_state.get_mouse();
             let (mx, my) = mouse_state.coords;
@@ -149,35 +182,61 @@ impl eframe::App for PetApp {
                 let dist = dist_vec.length();
 
                 if let Some(pet) = &mut self.pet {
-                    // 1. Facing logic
-                    if dist_vec.x < -30.0 { pet.facing_right = false; }
-                    else if dist_vec.x > 30.0 { pet.facing_right = true; }
+                    if pet.current_action != "typing" { // Don't follow if typing
+                        // 1. Facing logic
+                        if dist_vec.x < -30.0 { pet.facing_right = false; }
+                        else if dist_vec.x > 30.0 { pet.facing_right = true; }
 
-                    // 2. Movement & Animation
-                    let mouse_rel = mouse_abs - window_pos;
-                    let in_window = mouse_rel.x >= 0.0 && mouse_rel.x <= 300.0 
-                                 && mouse_rel.y >= 0.0 && mouse_rel.y <= 500.0;
+                        // 2. Movement & Animation
+                        let mouse_rel = mouse_abs - window_pos;
+                        let in_window = mouse_rel.x >= 0.0 && mouse_rel.x <= 300.0 
+                                     && mouse_rel.y >= 0.0 && mouse_rel.y <= 500.0;
 
-                    if !in_window && dist > 50.0 {
-                        if dist > 800.0 {
-                            if pet.current_action == "walk" {
-                                pet.set_action("idle");
-                                self.status_text = "너무 빨라요! 놓침...".to_string();
-                                self.status_timeout = time + 2.0;
+                        if !in_window && dist > 50.0 {
+                            if dist > 800.0 {
+                                if pet.current_action == "walk" {
+                                    pet.set_action("idle");
+                                    self.status_text = "너무 빨라요! 놓침...".to_string();
+                                    self.status_timeout = time + 2.0;
+                                }
+                            } else {
+                                if pet.current_action != "walk" && self.pending_action.is_none() {
+                                    pet.set_action("walk");
+                                }
+                                // Much slower movement for natural walking
+                                let lerp_factor = 0.002; 
+                                let new_pos = window_pos + dist_vec * lerp_factor;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
+                                self.wander_target = None; // Reset wander if following mouse
                             }
                         } else {
-                            if pet.current_action != "walk" && self.pending_action.is_none() {
-                                pet.set_action("walk");
+                            if pet.current_action == "walk" && self.pending_action.is_none() && self.wander_target.is_none() {
+                                pet.set_action("idle");
                             }
-                            // Much slower movement for natural walking
-                            let lerp_factor = 0.002; 
-                            let new_pos = window_pos + dist_vec * lerp_factor;
-                            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
                         }
-                    } else {
-                        if pet.current_action == "walk" && self.pending_action.is_none() {
-                            pet.set_action("idle");
-                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Automatic Patrolling (Wander)
+        if self.wander_target.is_some() {
+            if let (Some(target), Some(outer_rect)) = (self.wander_target, ctx.input(|i| i.viewport().outer_rect)) {
+                let current_pos = outer_rect.min;
+                let dist_vec = target - current_pos;
+                let dist = dist_vec.length();
+
+                if dist < 5.0 {
+                    self.wander_target = None;
+                    if let Some(pet) = &mut self.pet {
+                        pet.set_action("idle");
+                    }
+                } else {
+                    let move_step = dist_vec.normalized() * 0.5;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(current_pos + move_step));
+                    if let Some(pet) = &mut self.pet {
+                        if pet.current_action != "walk" { pet.set_action("walk"); }
+                        pet.facing_right = move_step.x > 0.0;
                     }
                 }
             }
@@ -230,28 +289,11 @@ impl eframe::App for PetApp {
 
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
+                    ui.add_space(80.0); // Initial space for the bubble overlay
                     
-                    // 1. Speech Bubble Row
-                    ui.horizontal(|ui| {
-                        ui.add_space(20.0); // Slight offset for the bubble
-                        if time < self.status_timeout {
-                            egui::Frame::none()
-                                .fill(egui::Color32::from_rgba_premultiplied(255, 255, 255, 240))
-                                .rounding(15.0)
-                                .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 200, 255)))
-                                .inner_margin(10.0)
-                                .show(ui, |ui| {
-                                    ui.set_max_width(120.0);
-                                    ui.label(egui::RichText::new(&self.status_text).size(15.0).color(egui::Color32::BLACK).strong());
-                                });
-                        } else {
-                            ui.add_space(40.0); // Maintain height
-                        }
-                    });
+                    let mut pet_rect = None;
 
-                    ui.add_space(10.0);
-
-                    // 2. Pet and Stats Row
+                    // 1. Pet and Stats Row
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = -15.0; // Pull left
                         
@@ -267,6 +309,7 @@ impl eframe::App for PetApp {
 
                                 let (rect, response) = ui.allocate_exact_size(size, egui::Sense::drag().union(egui::Sense::click()));
                                 ui.painter().image(texture.id(), rect, uv, egui::Color32::WHITE);
+                                pet_rect = Some(rect);
                                 
                                 if response.dragged() {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
@@ -291,7 +334,7 @@ impl eframe::App for PetApp {
                         // Stats Column attached to Pet
                         if self.show_stats {
                             ui.vertical(|ui| {
-                                ui.add_space(50.0); // Move slightly up (from 100)
+                                ui.add_space(50.0); // Move slightly up
                                 egui::Frame::none()
                                     .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
                                     .rounding(5.0)
@@ -329,6 +372,46 @@ impl eframe::App for PetApp {
                             response.context_menu(|ui| show_menu(ui, self));
                         }
                     });
+
+                    // 2. Speech Bubble Overlay (Drawn last to be on top)
+                    if let Some(rect) = pet_rect {
+                        if time < self.status_timeout {
+                            let bubble_width = 90.0;
+                            let bubble_pos = rect.left_top() + egui::vec2(35.0, -35.0); // Position relative to pet head
+                            let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width, 100.0));
+                            
+                            ui.allocate_ui_at_rect(bubble_rect, |ui| {
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    egui::Frame::none()
+                                        .fill(egui::Color32::from_rgba_premultiplied(255, 255, 255, 240))
+                                        .rounding(8.0)
+                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(101, 205, 229)))
+                                        .inner_margin(6.0)
+                                        .show(ui, |ui| {
+                                            ui.set_max_width(bubble_width);
+                                            ui.label(egui::RichText::new(&self.status_text).size(12.0).color(egui::Color32::BLACK).strong());
+                                        });
+                                    
+                                    // Speech bubble tail (Triangle)
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(15.0); // Center tail relative to bubble
+                                        let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 10.0), egui::Sense::hover());
+                                        let points = vec![
+                                            rect.left_top() + egui::vec2(1.0, -3.0),
+                                            rect.right_top() + egui::vec2(-1.0, -3.0),
+                                            rect.center_bottom(),
+                                        ];
+                                        ui.painter().add(egui::Shape::convex_polygon(
+                                            points,
+                                            egui::Color32::from_rgba_premultiplied(255, 255, 255, 240),
+                                            egui::Stroke::new(1.5, egui::Color32::from_rgb(101, 205, 229)),
+                                        ));
+                                    });
+                                });
+                            });
+                        }
+                    }
                 });
             });
 
@@ -346,14 +429,41 @@ impl eframe::App for PetApp {
             }
         }
 
-        // Automatic Behaviors
-        if time % 15.0 < 0.1 && self.pending_action.is_none() {
+        // Automatic Behaviors (Diversified)
+        if time % 10.0 < 0.1 && self.pending_action.is_none() && self.typing_gauge == 0.0 {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action == "idle" {
-                    let actions = vec!["think", "wave", "cheer", "sit"];
-                    use rand::seq::SliceRandom;
-                    if let Some(act) = actions.choose(&mut rand::thread_rng()) {
-                        pet.set_action(act);
+                    let choices = vec![
+                        ("think", "흠...", 3),
+                        ("wave", "ㅎㅇㅎㅇ", 2),
+                        ("cheer", "화이팅!", 2),
+                        ("sit", "잠깐 휴식", 2),
+                        ("sweep", "청소중", 2),
+                        ("pout", "흥...", 1),
+                        ("surprise", "헉!", 1),
+                        ("walk", "순찰 개시", 2),
+                    ];
+                    
+                    use rand::Rng;
+                    let mut rng = rand::thread_rng();
+                    let total_weight: i32 = choices.iter().map(|c| c.2).sum();
+                    let mut pick = rng.gen_range(0..total_weight);
+                    
+                    for (act, label, weight) in choices {
+                        if pick < weight {
+                            if act == "walk" {
+                                let dx = rng.gen_range(-200.0..200.0);
+                                let dy = rng.gen_range(-100.0..100.0);
+                                if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
+                                    self.wander_target = Some(outer_rect.min + egui::vec2(dx, dy));
+                                }
+                            }
+                            pet.set_action(act);
+                            self.status_text = label.to_string();
+                            self.status_timeout = time + 3.0;
+                            break;
+                        }
+                        pick -= weight;
                     }
                 }
             }
