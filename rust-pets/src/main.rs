@@ -333,6 +333,14 @@ impl eframe::App for PetApp {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                                     if pet.current_action != "drag_dangle" {
                                         pet.set_action("drag_dangle");
+                                        
+                                        use rand::seq::SliceRandom;
+                                        let drag_labels = ["놔라 휴먼!", "살려줘요!", "대롱대롱~", "어디가요!", "히익!", "우와아악!"];
+                                        let mut rng = rand::thread_rng();
+                                        if let Some(label) = drag_labels.choose(&mut rng) {
+                                            self.status_text = label.to_string();
+                                        }
+                                        self.status_timeout = time + 2.0;
                                     }
                                 } else if response.drag_stopped() {
                                     if pet.current_action == "drag_dangle" {
