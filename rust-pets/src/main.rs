@@ -218,16 +218,11 @@ impl eframe::App for PetApp {
                                     self.status_text = "추적중...".to_string();
                                     self.status_timeout = time + 2.0;
                                 }
-                                // Slower, more natural movement
-                                let lerp_factor = 0.003; 
-                                let move_vec = dist_vec * lerp_factor;
-                                // Reduced speed cap for slower movement
-                                let capped_move = if move_vec.length() > 1.2 {
-                                    move_vec.normalized() * 1.2
-                                } else {
-                                    move_vec
-                                };
-                                let new_pos = window_pos + capped_move;
+                                // Constant speed movement regardless of distance
+                                let speed = 0.8; 
+                                let move_vec = dist_vec.normalized() * speed;
+                                
+                                let new_pos = window_pos + move_vec;
                                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
                                 self.wander_target = None; // Reset wander if following mouse
                             }
