@@ -109,7 +109,7 @@ impl PetApp {
             wander_target: None,
         }
     }
-
+    
     fn switch_pet(&mut self, ctx: &egui::Context, name: &str) {
         if self.current_pet_name == name { return; }
         if let Some(config) = PetConfig::load_embedded(name) {
@@ -140,6 +140,18 @@ impl eframe::App for PetApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
 
+        // 0. Screen Boundary Check (Snap back if off-screen and not being dragged)
+        let is_dragging = ctx.input(|i| i.pointer.any_down());
+        if !is_dragging {
+            if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
+                let current_pos = outer_rect.min;
+                let clamped_pos = clamp_to_screen(ctx, current_pos);
+                if (current_pos.x - clamped_pos.x).abs() > 2.0 || (current_pos.y - clamped_pos.y).abs() > 2.0 {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(clamped_pos));
+                }
+            }
+        }
+
         // 1. Typing Detection
         let current_keys = self.device_state.get_keys();
         let new_presses = current_keys.iter().filter(|k| !self.last_keys.contains(k)).count();
@@ -154,7 +166,7 @@ impl eframe::App for PetApp {
         if self.typing_gauge > 100.0 {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action != "typing" && pet.current_action != "drag_dangle" {
-                    pet.set_action("typing");
+                    pet.set_action("typing", time);
                     self.status_text = "타닥타닥...".to_string();
                     self.status_timeout = time + 2.0;
                 }
@@ -162,7 +174,7 @@ impl eframe::App for PetApp {
         } else if self.typing_gauge == 0.0 {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action == "typing" {
-                    pet.set_action("idle");
+                    pet.set_action("idle", time);
                 }
             }
         }
@@ -187,13 +199,13 @@ impl eframe::App for PetApp {
                     if ctx.is_context_menu_open() {
                         // If menu is open, stop walking and show a different status
                         if pet.current_action == "walk" {
-                            pet.set_action("idle");
+                            pet.set_action("idle", time);
                         }
                         if self.status_text == "추적중..." {
                             self.status_text = "무엇을 할까요?".to_string();
                             self.status_timeout = time + 1.0;
                         }
-                    } else if pet.current_action != "typing" && self.action_timeout == 0.0 { 
+                    } else if pet.current_action != "typing" && pet.current_action != "drag_dangle" && self.action_timeout == 0.0 { 
                         // 1. Facing logic
                         if dist_vec.x < -30.0 { pet.facing_right = false; }
                         else if dist_vec.x > 30.0 { pet.facing_right = true; }
@@ -208,13 +220,13 @@ impl eframe::App for PetApp {
                         if !in_window && dist > 15.0 {
                             if dist > 800.0 {
                                 if pet.current_action == "walk" {
-                                    pet.set_action("idle");
+                                    pet.set_action("idle", time);
                                     self.status_text = "너무 빨라요! 놓침...".to_string();
                                     self.status_timeout = time + 2.0;
                                 }
                             } else {
                                 if pet.current_action != "walk" && self.pending_action.is_none() {
-                                    pet.set_action("walk");
+                                    pet.set_action("walk", time);
                                     self.status_text = "추적중...".to_string();
                                     self.status_timeout = time + 2.0;
                                 }
@@ -222,14 +234,14 @@ impl eframe::App for PetApp {
                                 let speed = 0.8; 
                                 let move_vec = dist_vec.normalized() * speed;
                                 
-                                let new_pos = window_pos + move_vec;
+                                let new_pos = clamp_to_screen(ctx, window_pos + move_vec);
                                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
                                 self.wander_target = None; // Reset wander if following mouse
                             }
                         } else {
                             // Arrived! Show "왔는가" when stopping
                             if pet.current_action == "walk" && self.pending_action.is_none() && self.wander_target.is_none() && self.action_timeout == 0.0 {
-                                pet.set_action("idle");
+                                pet.set_action("idle", time);
                                 self.status_text = "왔는가".to_string();
                                 self.status_timeout = time + 2.0;
                             } else if in_window && pet.current_action == "idle" && self.status_timeout < time {
@@ -250,21 +262,25 @@ impl eframe::App for PetApp {
                 let dist_vec = target - current_pos;
                 let dist = dist_vec.length();
 
-                if dist < 5.0 {
-                    self.wander_target = None;
-                    if let Some(pet) = &mut self.pet {
-                        pet.set_action("idle");
+                if let Some(pet) = &mut self.pet {
+                    // Priority: Stop wandering if typing or doing a specific action
+                    if pet.current_action == "typing" || pet.current_action == "drag_dangle" || self.action_timeout > 0.0 {
+                         self.wander_target = None;
+                         if pet.current_action == "walk" { pet.set_action("idle", time); }
+                    } else if dist < 5.0 {
+                        self.wander_target = None;
+                        pet.set_action("idle", time);
                         self.status_text = "왔는가".to_string();
-                        self.status_timeout = ctx.input(|i| i.time) + 2.0;
-                    }
-                } else {
-                    let move_step = dist_vec.normalized() * 0.45; // Slower, more natural patrol
-                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(current_pos + move_step));
-                    if let Some(pet) = &mut self.pet {
+                        self.status_timeout = time + 2.0;
+                    } else {
+                        let move_step = dist_vec.normalized() * 0.45; // Slower, more natural patrol
+                        let next_pos = clamp_to_screen(ctx, current_pos + move_step);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(next_pos));
+                        
                         if pet.current_action != "walk" { 
-                            pet.set_action("walk"); 
+                            pet.set_action("walk", time); 
                             self.status_text = "순찰중...".to_string();
-                            self.status_timeout = ctx.input(|i| i.time) + 2.0;
+                            self.status_timeout = time + 2.0;
                         }
                         pet.facing_right = move_step.x > 0.0;
                     }
@@ -344,7 +360,7 @@ impl eframe::App for PetApp {
                                 if response.dragged() {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                                     if pet.current_action != "drag_dangle" {
-                                        pet.set_action("drag_dangle");
+                                        pet.set_action("drag_dangle", time);
                                         
                                         use rand::seq::SliceRandom;
                                         let drag_labels = ["놔라 휴먼!", "살려줘요!", "대롱대롱~", "어디가요!", "히익!", "우와아악!"];
@@ -356,7 +372,7 @@ impl eframe::App for PetApp {
                                     }
                                 } else if response.drag_stopped() {
                                     if pet.current_action == "drag_dangle" {
-                                        pet.set_action("idle");
+                                        pet.set_action("idle", time);
                                         self.status_text = "살았다!".to_string();
                                         self.status_timeout = time + 2.0;
                                     }
@@ -478,7 +494,7 @@ impl eframe::App for PetApp {
 
         if let Some(new_action) = self.pending_action.take() {
             if let Some(pet) = &mut self.pet {
-                pet.set_action(&new_action);
+                pet.set_action(&new_action, time);
                 self.status_text = get_action_label(&new_action).to_string();
                 self.status_timeout = time + 3.0;
                 self.action_timeout = time + 5.0; // Actions last 5s by default
@@ -489,7 +505,7 @@ impl eframe::App for PetApp {
         if self.action_timeout > 0.0 && time > self.action_timeout {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action != "idle" && pet.current_action != "walk" && pet.current_action != "typing" {
-                    pet.set_action("idle");
+                    pet.set_action("idle", time);
                 }
             }
             self.action_timeout = 0.0;
@@ -526,17 +542,20 @@ impl eframe::App for PetApp {
                     for (act, label, weight) in filtered_choices {
                         if pick < weight {
                             if act == "walk" {
-                                let dx = rng.gen_range(-300.0..300.0);
-                                let dy = rng.gen_range(-150.0..150.0);
+                                let dx = rng.gen_range(-400.0..400.0);
+                                let dy = rng.gen_range(-200.0..200.0);
                                 if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
-                                    self.wander_target = Some(outer_rect.min + egui::vec2(dx, dy));
+                                    let target = outer_rect.min + egui::vec2(dx, dy);
+                                    self.wander_target = Some(clamp_to_screen(ctx, target));
                                 }
                             } else {
                                 self.action_timeout = time + rng.gen_range(3.0..7.0);
                             }
-                            pet.set_action(act);
-                            self.status_text = label.to_string();
-                            self.status_timeout = time + 3.0;
+                            if pet.current_action != act {
+                                pet.set_action(act, time);
+                                self.status_text = label.to_string();
+                                self.status_timeout = time + 3.0;
+                            }
                             break;
                         }
                         pick -= weight;
@@ -550,11 +569,11 @@ impl eframe::App for PetApp {
             if self.stats.cpu_usage > 90.0 {
                 self.status_text = "CPU 풀가동! 힘내요!".to_string();
                 self.status_timeout = time + 3.0;
-                if let Some(pet) = &mut self.pet { pet.set_action("cheer"); }
+                if let Some(pet) = &mut self.pet { pet.set_action("cheer", time); }
             } else if self.stats.ram_usage_pct > 90.0 {
                 self.status_text = "메모리가 부족해요...".to_string();
                 self.status_timeout = time + 3.0;
-                if let Some(pet) = &mut self.pet { pet.set_action("surprise"); }
+                if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
             } else {
                 use chrono::Timelike;
                 let hour = chrono::Local::now().hour();
@@ -563,7 +582,7 @@ impl eframe::App for PetApp {
                         if pet.current_action == "idle" && rand::random::<f32>() < 0.001 {
                             self.status_text = "야간 근무인가요?".to_string();
                             self.status_timeout = time + 4.0;
-                            pet.set_action("sleep");
+                            pet.set_action("sleep", time);
                         }
                     }
                 }
@@ -603,9 +622,26 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
-    eframe::run_native(
+        eframe::run_native(
         "Rust Pet",
         options,
         Box::new(|cc| Box::new(PetApp::new(cc)) as Box<dyn eframe::App>),
     )
+}
+
+fn clamp_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
+    if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
+        // The physical window is 300x500, but the pet is located at the top-left (approx 160x160).
+        // To allow the pet to reach the bottom and right edges of the screen, we clamp
+        // based on the pet's effective area rather than the full window size.
+        let effective_width = 220.0;  // Pet (160) + Stats/Margin
+        let effective_height = 240.0; // Top space (60) + Pet (160) + Margin
+        
+        egui::pos2(
+            pos.x.clamp(0.0, (monitor_size.x - effective_width).max(0.0)),
+            pos.y.clamp(-30.0, (monitor_size.y - effective_height).max(0.0)) // Allow speech bubble to go slightly off-top
+        )
+    } else {
+        pos
+    }
 }

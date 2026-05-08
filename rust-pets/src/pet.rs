@@ -60,17 +60,19 @@ impl PetState {
     pub fn update_animation(&mut self, time: f64) {
         if let Some(action) = self.config.manifest.actions.get(&self.current_action) {
             if let Some(textures) = self.textures.get(&self.current_action) {
-                if !textures.is_empty() {
+                if textures.len() > 1 {
                     let duration = action.frame_duration_ms as f64 / 1000.0;
-                    if time - self.last_frame_time > duration {
-                        self.frame_index = (self.frame_index + 1) % textures.len();
-                        self.last_frame_time = time;
+                    if duration > 0.0 {
+                        let elapsed = time - self.last_frame_time;
+                        if elapsed > duration {
+                            // Calculate how many frames to advance
+                            let frames_to_advance = (elapsed / duration) as usize;
+                            self.frame_index = (self.frame_index + frames_to_advance) % textures.len();
+                            self.last_frame_time = time;
+                        }
                     }
-                    
-                    // Safety: Ensure frame_index is always in bounds if textures changed or reloaded
-                    if self.frame_index >= textures.len() {
-                        self.frame_index = 0;
-                    }
+                } else {
+                    self.frame_index = 0;
                 }
             }
         }
@@ -86,7 +88,7 @@ impl PetState {
         }
     }
 
-    pub fn set_action(&mut self, action: &str) {
+    pub fn set_action(&mut self, action: &str, time: f64) {
         if self.current_action != action {
             if self.textures.contains_key(action) {
                 self.current_action = action.to_string();
@@ -95,6 +97,7 @@ impl PetState {
                 self.current_action = "idle".to_string();
             }
             self.frame_index = 0;
+            self.last_frame_time = time;
         }
     }
 }
