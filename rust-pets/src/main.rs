@@ -120,6 +120,8 @@ struct PetApp {
     llm_chat_receiver: Option<Receiver<Result<String, String>>>,
     llm_response_text: String,
     llm_response_timeout: f64,
+    llm_chat_history: Vec<llm::ChatMessage>,
+    last_llm_chat_time: f64,
 }
 
 impl PetApp {
@@ -190,6 +192,8 @@ impl PetApp {
             llm_chat_receiver: None,
             llm_response_text: String::new(),
             llm_response_timeout: 0.0,
+            llm_chat_history: Vec::new(),
+            last_llm_chat_time: 0.0,
         }
     }
     
@@ -886,6 +890,35 @@ impl eframe::App for PetApp {
                                         let send_btn = ui.add_sized([60.0, 25.0], egui::Button::new("전송"));
                                         if send_btn.clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                                             if !self.llm_chat_input.is_empty() {
+                                                // Session timeout check (30 minutes = 1800 seconds)
+                                                if time - self.last_llm_chat_time > 1800.0 {
+                                                    self.llm_chat_history.clear();
+                                                }
+                                                self.last_llm_chat_time = time;
+
+                                                // If history is empty, add system prompt
+                                                if self.llm_chat_history.is_empty() {
+                                                    let system_prompt = if self.current_pet_name == "GEMMI-Chan" {
+                                                        std::fs::read_to_string("gemmi.txt").unwrap_or_default()
+                                                    } else if self.current_pet_name == "GP-Chan" {
+                                                        std::fs::read_to_string("GPchan.txt").unwrap_or_default()
+                                                    } else {
+                                                        String::new()
+                                                    };
+                                                    if !system_prompt.is_empty() {
+                                                        self.llm_chat_history.push(llm::ChatMessage {
+                                                            role: "system".to_string(),
+                                                            content: system_prompt,
+                                                        });
+                                                    }
+                                                }
+
+                                                // Add user message
+                                                self.llm_chat_history.push(llm::ChatMessage {
+                                                    role: "user".to_string(),
+                                                    content: self.llm_chat_input.clone(),
+                                                });
+
                                                 let (tx, rx) = std::sync::mpsc::channel();
                                                 let config = self.llm_config.clone();
                                                 let api_key = if config.provider == llm::LlmProvider::Google {
@@ -893,34 +926,12 @@ impl eframe::App for PetApp {
                                                 } else {
                                                     None
                                                 };
-                                                let message = self.llm_chat_input.clone();
-                                                let pet_name = self.current_pet_name.clone();
+                                                let messages = self.llm_chat_history.clone();
                                                 
                                                 std::thread::spawn(move || {
                                                     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
                                                     
-                                                    // Load system prompt from file
-                                                    let system_prompt = if pet_name == "GEMMI-Chan" {
-                                                        std::fs::read_to_string("gemmi.txt").unwrap_or_default()
-                                                    } else if pet_name == "GP-Chan" {
-                                                        std::fs::read_to_string("GPchan.txt").unwrap_or_default()
-                                                    } else {
-                                                        String::new()
-                                                    };
-
                                                     let res = rt.block_on(async {
-                                                        let mut messages = Vec::new();
-                                                        if !system_prompt.is_empty() {
-                                                            messages.push(llm::ChatMessage { 
-                                                                role: "system".to_string(), 
-                                                                content: system_prompt 
-                                                            });
-                                                        }
-                                                        messages.push(llm::ChatMessage { 
-                                                            role: "user".to_string(), 
-                                                            content: message 
-                                                        });
-
                                                         llm::chat_completion(&config, api_key.as_deref(), messages).await
                                                     });
                                                     let _ = tx.send(res.map_err(|e| e.to_string()));
@@ -983,8 +994,12 @@ impl eframe::App for PetApp {
                 self.is_llm_thinking = false;
                 match res {
                     Ok(text) => {
-                        self.llm_response_text = text;
+                        self.llm_response_text = text.clone();
                         self.llm_response_timeout = time + 10.0;
+                        self.llm_chat_history.push(llm::ChatMessage {
+                            role: "assistant".to_string(),
+                            content: text,
+                        });
                         if let Some(pet) = &mut self.pet {
                             pet.set_action("wave", time);
                         }
