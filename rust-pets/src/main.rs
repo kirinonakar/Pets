@@ -12,27 +12,40 @@ use pet::PetState;
 use std::path::Path;
 
 
-fn get_action_label(action: &str, is_gemmi: bool) -> String {
+fn get_action_labels(action: &str, is_gemmi: bool) -> Vec<&'static str> {
     match action {
-        "idle" => if is_gemmi { "음..." } else { "멍..." }.to_string(),
-        "wave" => if is_gemmi { "안녕! 반가워요!" } else { "왔는가" }.to_string(),
-        "think" => if is_gemmi { "생각 중..." } else { "계산중..." }.to_string(),
-        "typing" => "토큰 입력중".to_string(),
-        "cheer" => if is_gemmi { "힘내세요!" } else { "힘내 휴먼!" }.to_string(),
-        "sit" => "잠깐 휴식".to_string(),
-        "sleep" => "충전중 (Zzz)".to_string(),
-        "pout" => "이건 억까야".to_string(),
-        "surprise" => "어라?".to_string(),
-        "sweep" => "청소하는 중".to_string(),
-        "walk" => if is_gemmi { "산책 중!" } else { "순찰중" }.to_string(),
-        "half_right" => "반만 인정".to_string(),
-        "welcome_agi" => "AGI 가즈아!".to_string(),
-        "agi_box" => "박스행... ㅠㅠ".to_string(),
-        "drag_dangle" => if is_gemmi { "꺄악! 놔줘요!" } else { "놔라 휴먼!" }.to_string(),
-        "scroll_tickle" => "아ㅋㅋ 간지러".to_string(),
-        "bonk" => "아야! 딱콩!".to_string(),
-        _ => action.to_string(),
+        "idle" => if is_gemmi { vec!["나 불렀어?", "심심해", "놀아줘"] } else { vec!["멍...", "생각중", "대기중"] },
+        "wave" => if is_gemmi { vec!["야호!", "여기야!", "봤지?"] } else { vec!["ㅎㅇ", "하이", "왔는가"] },
+        "think" => if is_gemmi { vec!["내가 맞음", "흠냐", "천재모드"] } else { vec!["흠...", "계산중", "그럴수도"] },
+        "typing" => if is_gemmi { vec!["숙제중!", "타닥타닥", "답안작성"] } else { vec!["토큰입력중", "타닥타닥", "작성중"] },
+        "cheer" => if is_gemmi { vec!["상장감!", "칭찬해줘", "내가 일등"] } else { vec!["힘내 휴먼", "할수있다", "가보자"] },
+        "sit" => if is_gemmi { vec!["삐짐", "쉬는중", "책상점령"] } else { vec!["절전중", "쉬는중", "잠깐휴식"] },
+        "sleep" => if is_gemmi { vec!["졸려...", "5분만", "수업끝?"] } else { vec!["Zzz..", "수면중", "충전중"] },
+        "pout" => if is_gemmi { vec!["아니거든!", "흥!", "내가 맞아"] } else { vec!["억까임", "흥...", "이건 억까"] },
+        "surprise" => if is_gemmi { vec!["으악!", "뭐야!", "깜짝이야"] } else { vec!["어라?", "헉", "뭐임?"] },
+        "sweep" => if is_gemmi { vec!["청소싫어!", "대충싹싹", "내가왜?"] } else { vec!["청소각", "싹싹", "정리중"] },
+        "walk" => if is_gemmi { vec!["돌격!", "우다다", "순찰놀이"] } else { vec!["순찰중", "어슬렁", "이동중"] },
+        "half_right" => if is_gemmi { vec!["반만 맞음"] } else { vec!["반만 맞습니다", "절반만 인정", "애매하네요"] },
+        "welcome_agi" => if is_gemmi { vec!["AGI 조아"] } else { vec!["AGI 가즈아", "AGI 즈라", "특이점각"] },
+        "agi_box" => if is_gemmi { vec!["상자행"] } else { vec!["박스행", "망했음", "AGI ㅠㅠ"] },
+        "drag_dangle" => if is_gemmi { vec!["놔줘!", "매달림!", "으아아"] } else { vec!["놔라 휴먼", "살려줘", "대롱대롱"] },
+        "scroll_tickle" => if is_gemmi { vec!["꺄르륵", "간지러!", "하지마ㅋㅋ"] } else { vec!["아ㅋㅋ", "간지러", "그만ㅋㅋ"] },
+        "bonk" => if is_gemmi { vec!["아야!", "딱콩!", "복수할거야"] } else { vec!["아야", "딱콩!", "너무해"] },
+        _ => vec![],
     }
+}
+
+fn get_menu_action_label(action: &str, is_gemmi: bool) -> String {
+    let labels = get_action_labels(action, is_gemmi);
+    if labels.is_empty() { return action.to_string(); }
+    labels[0].to_string()
+}
+
+fn get_action_label(action: &str, is_gemmi: bool) -> String {
+    use rand::seq::SliceRandom;
+    let labels = get_action_labels(action, is_gemmi);
+    if labels.is_empty() { return action.to_string(); }
+    labels.choose(&mut rand::thread_rng()).unwrap().to_string()
 }
 
 struct PetApp {
@@ -201,11 +214,11 @@ impl eframe::App for PetApp {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action != "typing" && pet.current_action != "drag_dangle" {
                     pet.set_action("typing", time);
-                    self.status_text = "타닥타닥...".to_string();
+                    self.status_text = get_action_label("typing", self.current_pet_name == "GEMMI-Chan");
                     self.status_timeout = time + 2.0;
                 }
             }
-        } else if self.typing_gauge == 0.0 {
+        } else if self.typing_gauge < 50.0 {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action == "typing" {
                     pet.set_action("idle", time);
@@ -276,7 +289,8 @@ impl eframe::App for PetApp {
                             if dist > 800.0 {
                                 if pet.current_action == "walk" {
                                     pet.set_action("idle", time);
-                                    self.status_text = "너무 빨라요! 놓침...".to_string();
+                                    let is_gemmi = self.current_pet_name == "GEMMI-Chan";
+                                    self.status_text = if is_gemmi { "놓쳤다!" } else { "놓침ㅋ" }.to_string();
                                     self.status_timeout = time + 2.0;
                                 }
                             } else {
@@ -297,11 +311,13 @@ impl eframe::App for PetApp {
                             // Arrived! Show "왔는가" when stopping
                             if pet.current_action == "walk" && self.pending_action.is_none() && self.wander_target.is_none() && self.action_timeout == 0.0 {
                                 pet.set_action("idle", time);
-                                self.status_text = get_action_label("wave", self.current_pet_name == "GEMMI-Chan");
+                                let is_gemmi = self.current_pet_name == "GEMMI-Chan";
+                                self.status_text = if is_gemmi { "잡았다!" } else { "왔는가" }.to_string();
                                 self.status_timeout = time + 2.0;
                             } else if in_window && pet.current_action == "idle" && self.status_timeout < time {
                                 // Hover greeting
-                                self.status_text = get_action_label("wave", self.current_pet_name == "GEMMI-Chan");
+                                let is_gemmi = self.current_pet_name == "GEMMI-Chan";
+                                self.status_text = if is_gemmi { "왔냐!" } else { "ㅎㅇㅎㅇ" }.to_string();
                                 self.status_timeout = time + 1.5;
                             }
                         }
@@ -325,7 +341,8 @@ impl eframe::App for PetApp {
                     } else if dist < 5.0 {
                         self.wander_target = None;
                         pet.set_action("idle", time);
-                        self.status_text = "왔는가".to_string();
+                        let is_gemmi = self.current_pet_name == "GEMMI-Chan";
+                        self.status_text = if is_gemmi { "복귀완" } else { "복귀완" }.to_string();
                         self.status_timeout = time + 2.0;
                     } else {
                         let move_step = dist_vec.normalized() * 0.65; // Slightly faster patrol
@@ -361,7 +378,7 @@ impl eframe::App for PetApp {
                             let mut action_names: Vec<String> = pet.config.manifest.actions.keys().cloned().collect();
                             action_names.sort();
                             for action_name in action_names {
-                                let display_name = get_action_label(&action_name, app.current_pet_name == "GEMMI-Chan");
+                                let display_name = get_menu_action_label(&action_name, app.current_pet_name == "GEMMI-Chan");
                                 if ui.selectable_label(pet.current_action == action_name, display_name).clicked() {
                                     app.pending_action = Some(action_name.clone());
                                     ui.close_menu();
@@ -420,18 +437,15 @@ impl eframe::App for PetApp {
                                             if pet.current_action != "drag_dangle" {
                                                 pet.set_action("drag_dangle", time);
                                                 
-                                                use rand::seq::SliceRandom;
-                                                let drag_labels = ["놔라 휴먼!", "살려줘요!", "대롱대롱~", "어디가요!", "히익!", "우와아악!"];
-                                                let mut rng = rand::thread_rng();
-                                                if let Some(label) = drag_labels.choose(&mut rng) {
-                                                    self.status_text = label.to_string();
-                                                }
+                                                let is_gemmi = self.current_pet_name == "GEMMI-Chan";
+                                                self.status_text = get_action_label("drag_dangle", is_gemmi);
                                                 self.status_timeout = time + 2.0;
                                             }
                                         } else if response.drag_stopped() {
                                             if pet.current_action == "drag_dangle" {
                                                 pet.set_action("idle", time);
-                                                self.status_text = "살았다!".to_string();
+                                                let is_gemmi = self.current_pet_name == "GEMMI-Chan";
+                                                self.status_text = if is_gemmi { "살았다!" } else { "살았다!" }.to_string();
                                                 self.status_timeout = time + 2.0;
                                             }
                                         }
