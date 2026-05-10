@@ -592,33 +592,60 @@ impl eframe::App for PetApp {
                             let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width, 100.0));
                             
                             ui.allocate_ui_at_rect(bubble_rect, |ui| {
+                                let bubble_fill = egui::Color32::from_rgba_premultiplied(255, 255, 255, 240);
+                                let bubble_stroke_color = egui::Color32::from_rgb(101, 205, 229);
+                                let bubble_stroke = egui::Stroke::new(1.5, bubble_stroke_color);
+
                                 ui.vertical(|ui| {
                                     ui.spacing_mut().item_spacing.y = 0.0;
-                                    egui::Frame::none()
-                                        .fill(egui::Color32::from_rgba_premultiplied(255, 255, 255, 240))
+                                    
+                                    // 1. Draw the main bubble box
+                                    let frame_res = egui::Frame::none()
+                                        .fill(bubble_fill)
                                         .rounding(8.0)
-                                        .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(101, 205, 229)))
+                                        .stroke(bubble_stroke)
                                         .inner_margin(6.0)
                                         .show(ui, |ui| {
                                             ui.set_max_width(bubble_width);
                                             ui.label(egui::RichText::new(&self.status_text).size(12.0).color(egui::Color32::BLACK).strong());
-                                        }).response.context_menu(|ui| show_menu(ui, self));
+                                        });
+
+                                    let bubble_frame_rect = frame_res.response.rect;
+                                    frame_res.response.context_menu(|ui| show_menu(ui, self));
+
+                                    // 2. Draw the Speech bubble tail (Triangle)
+                                    // We anchor it to the bubble frame's rect to ensure perfect alignment
+                                    let tail_width = 12.0;
+                                    let tail_height = 8.0;
+                                    let tail_x_offset = 15.0; // Offset from the left of the bubble
                                     
-                                    // Speech bubble tail (Triangle)
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(12.0); // Slightly adjusted space
-                                        let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 8.0), egui::Sense::hover());
-                                        let points = vec![
-                                            rect.left_top() + egui::vec2(1.0, -3.0),
-                                            rect.right_top() + egui::vec2(-1.0, -3.0),
-                                            rect.center_bottom(),
-                                        ];
-                                        ui.painter().add(egui::Shape::convex_polygon(
-                                            points,
-                                            egui::Color32::from_rgba_premultiplied(255, 255, 255, 240),
-                                            egui::Stroke::new(1.5, egui::Color32::from_rgb(101, 205, 229)),
-                                        ));
-                                    });
+                                    // Slight overlap (-1.0) ensures no physical gap
+                                    let tail_rect = egui::Rect::from_min_size(
+                                        bubble_frame_rect.left_bottom() + egui::vec2(tail_x_offset, -1.0),
+                                        egui::vec2(tail_width, tail_height)
+                                    );
+
+                                    let p1 = tail_rect.left_top();
+                                    let p2 = tail_rect.right_top();
+                                    let p3 = tail_rect.center_bottom();
+
+                                    // 2a. Fill the triangle
+                                    ui.painter().add(egui::Shape::convex_polygon(
+                                        vec![p1, p2, p3],
+                                        bubble_fill,
+                                        egui::Stroke::NONE,
+                                    ));
+
+                                    // 2b. Draw only the side strokes (left and right)
+                                    ui.painter().line_segment([p1, p3], bubble_stroke);
+                                    ui.painter().line_segment([p2, p3], bubble_stroke);
+
+                                    // 3. Mask the bubble's bottom stroke at the junction
+                                    // Draw a small line of the fill color over the junction to "erase" the border
+                                    ui.painter().line_segment(
+                                        [p1 + egui::vec2(0.5, 0.0), p2 - egui::vec2(0.5, 0.0)], 
+                                        egui::Stroke::new(2.0, bubble_fill)
+                                    );
                                 });
                             });
                         }
