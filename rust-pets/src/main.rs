@@ -247,11 +247,21 @@ impl eframe::App for PetApp {
             if mouse_rel.x >= 0.0 && mouse_rel.x <= 190.0 && mouse_rel.y >= 5.0 && mouse_rel.y <= 195.0 {
                 is_hovering_interactive = true;
             }
-            // LLM Bubble area (Below pet): expanded for scrolling/selection
-            if (self.llm_response_timeout > time || self.is_llm_thinking) && 
-               mouse_rel.x >= 0.0 && mouse_rel.x <= 250.0 && mouse_rel.y >= 195.0 && mouse_rel.y <= 450.0 {
+            // LLM Bubble area (Below pet): expanded for scrolling/selection/input
+            let is_hovering_bubble = mouse_rel.x >= 0.0 && mouse_rel.x <= 250.0 && mouse_rel.y >= 195.0 && mouse_rel.y <= 500.0;
+            if (self.llm_response_timeout > time || self.is_llm_thinking || self.show_llm_chat) && is_hovering_bubble {
                 is_hovering_interactive = true;
+                
+                // Extend timeout if hovering
+                if self.llm_response_timeout > time {
+                    self.llm_response_timeout = time + 10.0;
+                }
             }
+        }
+
+        // Also extend if typing (even if not hovering)
+        if !self.llm_chat_input.is_empty() && self.llm_response_timeout > time {
+            self.llm_response_timeout = time + 10.0;
         }
 
         // 5. Mouse Passthrough Control
@@ -692,19 +702,20 @@ impl eframe::App for PetApp {
                             });
                         }
 
-                        // 2b. LLM Speech Bubble (Below)
-                        if time < self.llm_response_timeout || self.is_llm_thinking {
-                            let text = if self.is_llm_thinking { "생각 중..." } else { &self.llm_response_text };
-                            let bubble_width = (text.chars().count() as f32 * 7.0).clamp(80.0, 200.0);
-                            let x_offset = if bubble_width > 120.0 { 10.0 } else { 40.0 };
+                        // 2b. LLM Speech Bubble & Chat Input (Below)
+                        if time < self.llm_response_timeout || self.is_llm_thinking || self.show_llm_chat {
+                            let is_showing_response = time < self.llm_response_timeout || self.is_llm_thinking;
+                            let text = if self.is_llm_thinking { "생각 중...".to_string() } else { self.llm_response_text.clone() };
+                            
+                            let bubble_width = 200.0;
+                            let x_offset = 10.0;
                             let bubble_pos = rect.left_bottom() + egui::vec2(x_offset, 10.0); 
                             
-                            // Use Area for better interaction handling
                             egui::Area::new(egui::Id::new("llm_bubble"))
                                 .fixed_pos(bubble_pos)
                                 .order(egui::Order::Foreground)
                                 .show(ctx, |ui| {
-                                    let bubble_fill = egui::Color32::from_rgba_premultiplied(240, 250, 255, 240); // Slightly blueish
+                                    let bubble_fill = egui::Color32::from_rgba_premultiplied(240, 250, 255, 240);
                                     let bubble_stroke_color = egui::Color32::from_rgb(100, 150, 255);
                                     let bubble_stroke = egui::Stroke::new(1.5, bubble_stroke_color);
 
@@ -741,28 +752,120 @@ impl eframe::App for PetApp {
                                             .inner_margin(6.0)
                                             .show(ui, |ui| {
                                                 ui.set_max_width(bubble_width + 10.0);
-                                                egui::ScrollArea::vertical()
-                                                    .id_source("llm_response_scroll")
-                                                    .max_height(140.0)
-                                                    .auto_shrink([true; 2])
-                                                    .show(ui, |ui| {
-                                                        ui.set_width(bubble_width);
-                                                        let mut job = egui::text::LayoutJob::default();
-                                                        job.wrap.max_width = bubble_width;
-                                                        let parts: Vec<&str> = text.split("**").collect();
-                                                        for (i, part) in parts.iter().enumerate() {
-                                                            let mut format = egui::TextFormat {
-                                                                font_id: egui::FontId::proportional(12.0),
-                                                                color: egui::Color32::BLACK,
-                                                                ..Default::default()
-                                                            };
-                                                            if i % 2 == 1 {
-                                                                format.font_id = egui::TextStyle::Button.resolve(ui.style());
-                                                            }
-                                                            job.append(*part, 0.0, format);
+                                                ui.vertical(|ui| {
+                                                    // 2a. Response Text
+                                                    if is_showing_response {
+                                                        egui::ScrollArea::vertical()
+                                                            .id_source("llm_response_scroll")
+                                                            .max_height(140.0)
+                                                            .auto_shrink([true; 2])
+                                                            .show(ui, |ui| {
+                                                                ui.set_width(bubble_width);
+                                                                let mut job = egui::text::LayoutJob::default();
+                                                                job.wrap.max_width = bubble_width;
+                                                                let parts: Vec<&str> = text.split("**").collect();
+                                                                for (i, part) in parts.iter().enumerate() {
+                                                                    let mut format = egui::TextFormat {
+                                                                        font_id: egui::FontId::proportional(12.0),
+                                                                        color: egui::Color32::BLACK,
+                                                                        ..Default::default()
+                                                                    };
+                                                                    if i % 2 == 1 {
+                                                                        format.font_id = egui::TextStyle::Button.resolve(ui.style());
+                                                                    }
+                                                                    job.append(*part, 0.0, format);
+                                                                }
+                                                                ui.add(egui::Label::new(job).selectable(true));
+                                                            });
+                                                        
+                                                        if self.show_llm_chat {
+                                                            ui.add_space(5.0);
+                                                            ui.separator();
+                                                            ui.add_space(5.0);
                                                         }
-                                                        ui.add(egui::Label::new(job).selectable(true));
-                                                    });
+                                                    }
+
+                                                    // 2b. Chat Input
+                                                    if self.show_llm_chat {
+                                                        if self.is_llm_thinking {
+                                                            ui.horizontal(|ui| {
+                                                                ui.spinner();
+                                                                ui.label(egui::RichText::new("생각 중...").size(10.0));
+                                                            });
+                                                        } else {
+                                                            let resp = ui.add(egui::TextEdit::multiline(&mut self.llm_chat_input)
+                                                                .desired_width(bubble_width)
+                                                                .desired_rows(1)
+                                                                .font(egui::FontId::proportional(11.0))
+                                                                .hint_text("메시지를 입력하세요..."));
+                                                            
+                                                            ui.add_space(8.0);
+                                                            ui.horizontal(|ui| {
+                                                                let send_btn = ui.add_sized([50.0, 20.0], egui::Button::new("전송"));
+                                                                if send_btn.clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                                                                    if !self.llm_chat_input.is_empty() {
+                                                                        // Session timeout check
+                                                                        if time - self.last_llm_chat_time > 1800.0 {
+                                                                            self.llm_chat_history.clear();
+                                                                        }
+                                                                        self.last_llm_chat_time = time;
+
+                                                                        if self.llm_chat_history.is_empty() {
+                                                                            let system_prompt = if self.current_pet_name == "GEMMI-Chan" {
+                                                                                std::fs::read_to_string("gemmi.txt").unwrap_or_default()
+                                                                            } else if self.current_pet_name == "GP-Chan" {
+                                                                                std::fs::read_to_string("GPchan.txt").unwrap_or_default()
+                                                                            } else {
+                                                                                String::new()
+                                                                            };
+                                                                            if !system_prompt.is_empty() {
+                                                                                self.llm_chat_history.push(llm::ChatMessage {
+                                                                                    role: "system".to_string(),
+                                                                                    content: system_prompt,
+                                                                                });
+                                                                            }
+                                                                        }
+
+                                                                        self.llm_chat_history.push(llm::ChatMessage {
+                                                                            role: "user".to_string(),
+                                                                            content: self.llm_chat_input.clone(),
+                                                                        });
+
+                                                                        let (tx, rx) = std::sync::mpsc::channel();
+                                                                        let config = self.llm_config.clone();
+                                                                        let api_key = if config.provider == llm::LlmProvider::Google {
+                                                                            Some(self.google_api_key.clone())
+                                                                        } else {
+                                                                            None
+                                                                        };
+                                                                        let messages = self.llm_chat_history.clone();
+                                                                        
+                                                                        std::thread::spawn(move || {
+                                                                            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                                                                            let res = rt.block_on(async {
+                                                                                llm::chat_completion(&config, api_key.as_deref(), messages).await
+                                                                            });
+                                                                            let _ = tx.send(res.map_err(|e| e.to_string()));
+                                                                        });
+                                                                        
+                                                                        self.llm_chat_receiver = Some(rx);
+                                                                        self.is_llm_thinking = true;
+                                                                        self.llm_chat_input.clear();
+                                                                        
+                                                                        if let Some(pet) = &mut self.pet {
+                                                                            pet.set_action("idle", time);
+                                                                        }
+                                                                        self.llm_response_text = "생각 중...".to_string();
+                                                                        self.llm_response_timeout = time + 60.0;
+                                                                    }
+                                                                }
+                                                                if ui.add_sized([50.0, 20.0], egui::Button::new("닫기")).clicked() {
+                                                                    self.show_llm_chat = false;
+                                                                }
+                                                            });
+                                                        }
+                                                    }
+                                                });
                                             });
 
                                         // 3. Mask the junction
@@ -860,104 +963,7 @@ impl eframe::App for PetApp {
                     self.show_llm_settings = open;
                 }
 
-                // --- LLM Chat Window ---
-                if self.show_llm_chat {
-                    let mut open = self.show_llm_chat;
-                    let mut close_requested = false;
-                    let title = format!("{} 과 대화하기", self.current_pet_name);
-                    egui::Window::new(egui::RichText::new(title).size(12.0))
-                        .open(&mut open)
-                        .resizable(false)
-                        .default_pos([10.0, 240.0])
-                        .show(ctx, |ui| {
-                            ui.style_mut().override_text_style = Some(egui::TextStyle::Small);
-                            ui.style_mut().visuals.window_rounding = 8.0.into();
-                            
-                            ui.vertical(|ui| {
-                                if self.is_llm_thinking {
-                                    ui.horizontal(|ui| {
-                                        ui.spinner();
-                                        ui.label(egui::RichText::new("생각 중...").size(10.0));
-                                    });
-                                } else {
-                                    ui.label(egui::RichText::new("메시지를 입력하세요:").size(12.0).strong());
-                                    let resp = ui.add(egui::TextEdit::multiline(&mut self.llm_chat_input)
-                                        .desired_width(180.0)
-                                        .desired_rows(2)
-                                        .font(egui::FontId::proportional(11.0)));
-                                    
-                                    ui.horizontal(|ui| {
-                                        let send_btn = ui.add_sized([60.0, 25.0], egui::Button::new("전송"));
-                                        if send_btn.clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                                            if !self.llm_chat_input.is_empty() {
-                                                // Session timeout check (30 minutes = 1800 seconds)
-                                                if time - self.last_llm_chat_time > 1800.0 {
-                                                    self.llm_chat_history.clear();
-                                                }
-                                                self.last_llm_chat_time = time;
 
-                                                // If history is empty, add system prompt
-                                                if self.llm_chat_history.is_empty() {
-                                                    let system_prompt = if self.current_pet_name == "GEMMI-Chan" {
-                                                        std::fs::read_to_string("gemmi.txt").unwrap_or_default()
-                                                    } else if self.current_pet_name == "GP-Chan" {
-                                                        std::fs::read_to_string("GPchan.txt").unwrap_or_default()
-                                                    } else {
-                                                        String::new()
-                                                    };
-                                                    if !system_prompt.is_empty() {
-                                                        self.llm_chat_history.push(llm::ChatMessage {
-                                                            role: "system".to_string(),
-                                                            content: system_prompt,
-                                                        });
-                                                    }
-                                                }
-
-                                                // Add user message
-                                                self.llm_chat_history.push(llm::ChatMessage {
-                                                    role: "user".to_string(),
-                                                    content: self.llm_chat_input.clone(),
-                                                });
-
-                                                let (tx, rx) = std::sync::mpsc::channel();
-                                                let config = self.llm_config.clone();
-                                                let api_key = if config.provider == llm::LlmProvider::Google {
-                                                    Some(self.google_api_key.clone())
-                                                } else {
-                                                    None
-                                                };
-                                                let messages = self.llm_chat_history.clone();
-                                                
-                                                std::thread::spawn(move || {
-                                                    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-                                                    
-                                                    let res = rt.block_on(async {
-                                                        llm::chat_completion(&config, api_key.as_deref(), messages).await
-                                                    });
-                                                    let _ = tx.send(res.map_err(|e| e.to_string()));
-                                                });
-                                                
-                                                self.llm_chat_receiver = Some(rx);
-                                                self.is_llm_thinking = true;
-                                                self.llm_chat_input.clear();
-                                                close_requested = true; // Auto close on send
-                                                
-                                                if let Some(pet) = &mut self.pet {
-                                                    pet.set_action("idle", time);
-                                                }
-                                                self.llm_response_text = "생각 중...".to_string();
-                                                self.llm_response_timeout = time + 60.0;
-                                            }
-                                        }
-                                        if ui.add_sized([60.0, 25.0], egui::Button::new("닫기")).clicked() {
-                                            close_requested = true;
-                                        }
-                                    });
-                                }
-                            });
-                        });
-                    self.show_llm_chat = open && !close_requested;
-                }
             });
 
         // --- LM Studio Model Fetching Logic ---
