@@ -242,7 +242,7 @@ impl eframe::App for PetApp {
         // --- GLOBAL MOUSE DATA (Moved up for passthrough logic) ---
         let mouse_state = self.device_state.get_mouse();
         let (mx, my) = mouse_state.coords;
-        let ppp = ctx.pixels_per_point();
+        let ppp = viewport_pixels_per_point(ctx);
         let mouse_abs = egui::pos2(mx as f32 / ppp, my as f32 / ppp);
         
         let mut is_hovering_interactive = false;
@@ -476,11 +476,24 @@ impl eframe::App for PetApp {
                                 if hit_x { -move_step.x } else { move_step.x },
                                 if hit_y { -move_step.y } else { move_step.y },
                             );
-                            let bounce_pos = clamp_to_screen(ctx, current_pos + reflected_step);
+
+                            // Do not stay exactly on the edge after a bounce.
+                            // If we only clamp the next point, the next random target can be clamped
+                            // to the same edge again and the pet appears to go out/in forever.
+                            let reflected_dir = if reflected_step.length() > 0.0001 {
+                                reflected_step.normalized()
+                            } else {
+                                egui::vec2(if hit_x { -move_step.x.signum() } else { 1.0 }, 0.0)
+                            };
+                            let bounce_pos = clamp_to_screen_with_inset(
+                                ctx,
+                                current_pos + reflected_dir * EDGE_BOUNCE_PUSH,
+                                PATROL_EDGE_INSET,
+                            );
 
                             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(bounce_pos));
-                            self.wander_target = Some(make_bounced_wander_target(ctx, bounce_pos, reflected_step));
-                            pet.facing_right = reflected_step.x >= 0.0;
+                            self.wander_target = Some(make_bounced_wander_target(ctx, bounce_pos, reflected_dir));
+                            pet.facing_right = reflected_dir.x >= 0.0;
 
                             let is_gemmi = self.current_pet_name == "GEMMI-Chan";
                             self.status_text = if is_gemmi { "앗! 반대로!" } else { "통! 반대로" }.to_string();
@@ -1172,20 +1185,28 @@ impl eframe::App for PetApp {
     }
 }
 
-fn make_bounced_wander_target(ctx: &egui::Context, pos: egui::Pos2, reflected_step: egui::Vec2) -> egui::Pos2 {
+const PET_WINDOW_VISIBLE_WIDTH: f32 = 175.0;
+const PET_WINDOW_VISIBLE_HEIGHT: f32 = 210.0;
+const PATROL_EDGE_INSET: f32 = 16.0;
+const PATROL_TARGET_EDGE_INSET: f32 = 64.0;
+const EDGE_BOUNCE_PUSH: f32 = 24.0;
+
+fn make_bounced_wander_target(ctx: &egui::Context, pos: egui::Pos2, reflected_dir: egui::Vec2) -> egui::Pos2 {
     use rand::Rng;
 
     let mut rng = rand::thread_rng();
-    let dir = if reflected_step.length() > 0.0001 {
-        reflected_step.normalized()
+    let dir = if reflected_dir.length() > 0.0001 {
+        reflected_dir.normalized()
     } else {
         egui::vec2(1.0, 0.0)
     };
     let side = egui::vec2(-dir.y, dir.x);
-    let forward = rng.gen_range(220.0..520.0);
-    let sideways = rng.gen_range(-140.0..140.0);
+    let forward = rng.gen_range(260.0..560.0);
+    let sideways = rng.gen_range(-120.0..120.0);
 
-    clamp_to_screen(ctx, pos + dir * forward + side * sideways)
+    // Keep the new target well inside the screen. This avoids the target being
+    // immediately clamped back to the same edge, which caused the out/in loop.
+    clamp_to_screen_with_inset(ctx, pos + dir * forward + side * sideways, PATROL_TARGET_EDGE_INSET)
 }
 
 fn main() -> eframe::Result<()> {
@@ -1209,6 +1230,7 @@ fn main() -> eframe::Result<()> {
             .with_decorations(false)
             .with_always_on_top()
             .with_inner_size([400.0, 600.0])
+            .with_resizable(false)
             .with_icon(icon_data.unwrap_or_default()),
         ..Default::default()
     };
@@ -1220,18 +1242,28 @@ fn main() -> eframe::Result<()> {
     )
 }
 
+fn viewport_pixels_per_point(ctx: &egui::Context) -> f32 {
+    // Viewport positions and sizes are in egui logical points. Keep all manual
+    // OS coordinate conversions in the same point scale, otherwise HiDPI screens
+    // can make the pet look like it changes size near the screen edge.
+    let ppp = ctx.pixels_per_point();
+    if ppp > 0.0 { ppp } else { 1.0 }
+}
+
 fn clamp_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
+    clamp_to_screen_with_inset(ctx, pos, PATROL_EDGE_INSET)
+}
+
+fn clamp_to_screen_with_inset(ctx: &egui::Context, pos: egui::Pos2, inset: f32) -> egui::Pos2 {
     let screen_rect = get_virtual_screen_rect(ctx);
-    
-    // The window is 400x600, but the pet is in the top-left area (~160x160).
-    // The pet starts at y=30.0 inside the window.
-    let pet_margin_x = 175.0; // 160 (pet width) + 15 (safe buffer)
-    let pet_margin_y = 210.0; // 30 (top offset) + 160 (pet height) + 20 (safe buffer)
-    
-    egui::pos2(
-        pos.x.clamp(screen_rect.min.x, (screen_rect.max.x - pet_margin_x).max(screen_rect.min.x)),
-        pos.y.clamp(screen_rect.min.y - 30.0, (screen_rect.max.y - pet_margin_y).max(screen_rect.min.y))
-    )
+    let inset = inset.max(0.0);
+
+    let min_x = screen_rect.min.x + inset;
+    let min_y = screen_rect.min.y + inset;
+    let max_x = (screen_rect.max.x - PET_WINDOW_VISIBLE_WIDTH - inset).max(min_x);
+    let max_y = (screen_rect.max.y - PET_WINDOW_VISIBLE_HEIGHT - inset).max(min_y);
+
+    egui::pos2(pos.x.clamp(min_x, max_x), pos.y.clamp(min_y, max_y))
 }
 
 #[cfg(target_os = "windows")]
@@ -1243,7 +1275,7 @@ fn get_virtual_screen_rect(ctx: &egui::Context) -> egui::Rect {
         let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
         let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
         
-        let ppp = ctx.pixels_per_point();
+        let ppp = viewport_pixels_per_point(ctx);
         egui::Rect::from_min_size(
             egui::pos2(x as f32 / ppp, y as f32 / ppp),
             egui::vec2(width as f32 / ppp, height as f32 / ppp),
