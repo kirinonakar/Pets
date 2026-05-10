@@ -121,7 +121,8 @@ struct PetApp {
     llm_response_text: String,
     llm_response_timeout: f64,
     llm_chat_history: Vec<llm::ChatMessage>,
-    last_llm_chat_time: f64,
+    last_llm_chat_history_time: f64,
+    last_chat_input_activity: f64,
 }
 
 impl PetApp {
@@ -193,7 +194,8 @@ impl PetApp {
             llm_response_text: String::new(),
             llm_response_timeout: 0.0,
             llm_chat_history: Vec::new(),
-            last_llm_chat_time: 0.0,
+            last_llm_chat_history_time: 0.0,
+            last_chat_input_activity: 0.0,
         }
     }
     
@@ -207,7 +209,8 @@ impl PetApp {
             self.llm_chat_history.clear();
             self.llm_response_text.clear();
             self.llm_response_timeout = 0.0;
-            self.last_llm_chat_time = 0.0;
+            self.last_llm_chat_history_time = 0.0;
+            self.last_chat_input_activity = 0.0;
             self.is_llm_thinking = false;
         }
     }
@@ -269,6 +272,11 @@ impl eframe::App for PetApp {
         // Also extend if typing (even if not hovering)
         if !self.llm_chat_input.is_empty() && self.llm_response_timeout > time {
             self.llm_response_timeout = time + 10.0;
+        }
+
+        // Auto-close chat input after 1 minute of inactivity
+        if self.show_llm_chat && time - self.last_chat_input_activity > 60.0 {
+            self.show_llm_chat = false;
         }
 
         // 5. Mouse Passthrough Control
@@ -589,6 +597,7 @@ impl eframe::App for PetApp {
                                             if self.show_llm_chat {
                                                 self.status_text = "말해봐!".to_string();
                                                 self.status_timeout = time + 10.0;
+                                                self.last_chat_input_activity = time;
                                             }
                                         }
                                         pet_response = Some(response);
@@ -808,6 +817,10 @@ impl eframe::App for PetApp {
                                                                 .font(egui::FontId::proportional(11.0))
                                                                 .hint_text("메시지를 입력하세요..."));
                                                             
+                                                            if resp.changed() {
+                                                                self.last_chat_input_activity = time;
+                                                            }
+                                                            
                                                             let mut submit = false;
                                                             if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.ctrl) {
                                                                 submit = true;
@@ -819,12 +832,13 @@ impl eframe::App for PetApp {
                                                             ui.horizontal(|ui| {
                                                                 let send_btn = ui.add_sized([50.0, 20.0], egui::Button::new("전송"));
                                                                 if send_btn.clicked() || submit {
+                                                                    self.last_chat_input_activity = time;
                                                                     if !self.llm_chat_input.is_empty() {
                                                                         // Session timeout check
-                                                                        if time - self.last_llm_chat_time > 1800.0 {
+                                                                        if time - self.last_llm_chat_history_time > 1800.0 {
                                                                             self.llm_chat_history.clear();
                                                                         }
-                                                                        self.last_llm_chat_time = time;
+                                                                        self.last_llm_chat_history_time = time;
 
                                                                         if self.llm_chat_history.is_empty() {
                                                                             let system_prompt = if self.current_pet_name == "GEMMI-Chan" {
