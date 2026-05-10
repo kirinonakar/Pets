@@ -384,10 +384,23 @@ impl eframe::App for PetApp {
                         let move_step = dist_vec.normalized() * 0.65; // Slightly faster patrol
                         let next_pos = clamp_to_screen(ctx, current_pos + move_step);
                         
-                        // Bounce/Stop Logic: If we are stuck at the edge, stop wandering
+                        // Bounce Logic: If we are stuck at the edge, pick a new target in the opposite direction
                         if (next_pos.x - current_pos.x).abs() < 0.1 && (next_pos.y - current_pos.y).abs() < 0.1 {
-                            self.wander_target = None;
-                            pet.set_action("idle", time);
+                            // Boundary hit! Pick a new target away from the edge
+                            use rand::Rng;
+                            let mut rng = rand::thread_rng();
+                            
+                            // If we were moving right and got stuck, move left. If moving left, move right.
+                            let dx = if dist_vec.x > 0.0 { rng.gen_range(-400.0..-100.0) } else { rng.gen_range(100.0..400.0) };
+                            let dy = if dist_vec.y > 0.0 { rng.gen_range(-200.0..-50.0) } else { rng.gen_range(50.0..200.0) };
+                            
+                            let new_target = current_pos + egui::vec2(dx, dy);
+                            self.wander_target = Some(clamp_to_screen(ctx, new_target));
+                            
+                            // Visual feedback for bounce
+                            let is_gemmi = self.current_pet_name == "GEMMI-Chan";
+                            self.status_text = if is_gemmi { "앗! 반대로!" } else { "통!" }.to_string();
+                            self.status_timeout = time + 1.0;
                         } else {
                             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(next_pos));
                             
@@ -754,16 +767,14 @@ fn main() -> eframe::Result<()> {
 fn clamp_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
     let screen_rect = get_virtual_screen_rect(ctx);
     
-    // The window is 600x800, but the pet is in the top-left area (~180x200).
-    // To keep the right-click menu and other UI elements within reach, 
-    // we use margins that allow the window to go partially off-screen 
-    // so the pet can reach the edges, while keeping the main interaction area safe.
+    // The window is 400x600, but the pet is in the top-left area (~160x160).
+    // The pet starts at y=30.0 inside the window.
     let pet_margin_x = 160.0; 
-    let pet_margin_y = 180.0;
+    let pet_margin_y = 195.0; // 30 (top offset) + 160 (pet height) + 5 (padding)
     
     egui::pos2(
         pos.x.clamp(screen_rect.min.x, (screen_rect.max.x - pet_margin_x).max(screen_rect.min.x)),
-        pos.y.clamp(screen_rect.min.y - 20.0, (screen_rect.max.y - pet_margin_y).max(screen_rect.min.y))
+        pos.y.clamp(screen_rect.min.y - 30.0, (screen_rect.max.y - pet_margin_y).max(screen_rect.min.y))
     )
 }
 
