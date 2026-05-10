@@ -15,7 +15,7 @@ use std::path::Path;
 fn get_action_label(action: &str) -> &str {
     match action {
         "idle" => "멍...",
-        "wave" => "ㅎㅇㅎㅇ",
+        "wave" => "왔는가",
         "think" => "계산중...",
         "typing" => "토큰 입력중",
         "cheer" => "힘내 휴먼!",
@@ -53,6 +53,7 @@ struct PetApp {
     typing_gauge: f32,
     last_keys: Vec<device_query::Keycode>,
     wander_target: Option<egui::Pos2>,
+    was_hovering: bool,
 }
 
 impl PetApp {
@@ -107,6 +108,7 @@ impl PetApp {
             typing_gauge: 0.0,
             last_keys: Vec::new(),
             wander_target: None,
+            was_hovering: false,
         }
     }
     
@@ -211,6 +213,36 @@ impl eframe::App for PetApp {
             }
         }
 
+        // 1.5. Scroll & Hover Detection
+        let scroll_delta = ctx.input(|i| i.smooth_scroll_delta.y);
+        if scroll_delta.abs() > 0.1 && is_hovering_interactive {
+            if let Some(pet) = &mut self.pet {
+                if pet.textures.contains_key("scroll_tickle") {
+                    if pet.current_action != "scroll_tickle" {
+                        pet.set_action("scroll_tickle", time);
+                        self.status_text = get_action_label("scroll_tickle").to_string();
+                        self.status_timeout = time + 2.0;
+                    }
+                    self.action_timeout = time + 2.5; // Stay in tickle for a bit
+                }
+            }
+        }
+
+        // Detect hover entry
+        if is_hovering_interactive && !self.was_hovering {
+            if let Some(pet) = &mut self.pet {
+                if pet.current_action == "idle" || pet.current_action == "walk" {
+                    // Quick reaction on hover
+                    let reaction = if pet.textures.contains_key("wave") { "wave" } else { "surprise" };
+                    pet.set_action(reaction, time);
+                    self.status_text = "왔는가".to_string();
+                    self.status_timeout = time + 1.5;
+                    self.action_timeout = time + 2.0;
+                }
+            }
+        }
+        self.was_hovering = is_hovering_interactive;
+
         // 2. Global Mouse Following & Window Movement Logic
         if self.mouse_follow {
             if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
@@ -269,7 +301,7 @@ impl eframe::App for PetApp {
                                 self.status_timeout = time + 2.0;
                             } else if in_window && pet.current_action == "idle" && self.status_timeout < time {
                                 // Hover greeting
-                                self.status_text = "ㅎㅇㅎㅇ".to_string();
+                                self.status_text = "왔는가".to_string();
                                 self.status_timeout = time + 1.5;
                             }
                         }
