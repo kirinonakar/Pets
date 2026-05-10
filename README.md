@@ -19,9 +19,9 @@ Rust로 작성된 고성능 GPU 가속 데스크톱 펫 애플리케이션입니
 - **세련된 UI**: 투명 배경 및 '항상 위' 설정을 지원하는 깔끔한 오버레이 창.
 
 ## 🚀 시작하기
+
 ### 📥 Download
 You can download the latest version from the [Releases Page](https://github.com/kirinonakar/Pets/releases).
-
 
 ### 사전 요구 사항
 

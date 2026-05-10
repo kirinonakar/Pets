@@ -709,16 +709,40 @@ fn main() -> eframe::Result<()> {
 }
 
 fn clamp_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
-    if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
-        // Updated clamping for the new 240x260 window size.
-        let effective_width = 200.0;  // Pet (160) + Stats/Margin
-        let effective_height = 220.0; // Top space (30) + Pet (160) + Margin
+    let screen_rect = get_virtual_screen_rect(ctx);
+    
+    // Updated clamping for the new 240x260 window size.
+    let effective_width = 200.0;  // Pet (160) + Stats/Margin
+    let effective_height = 220.0; // Top space (30) + Pet (160) + Margin
+    
+    egui::pos2(
+        pos.x.clamp(screen_rect.min.x, (screen_rect.max.x - effective_width).max(screen_rect.min.x)),
+        pos.y.clamp(screen_rect.min.y - 20.0, (screen_rect.max.y - effective_height).max(screen_rect.min.y)) // Allow speech bubble to go slightly off-top
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn get_virtual_screen_rect(ctx: &egui::Context) -> egui::Rect {
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    unsafe {
+        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
         
-        egui::pos2(
-            pos.x.clamp(0.0, (monitor_size.x - effective_width).max(0.0)),
-            pos.y.clamp(-20.0, (monitor_size.y - effective_height).max(0.0)) // Allow speech bubble to go slightly off-top
+        let ppp = ctx.pixels_per_point();
+        egui::Rect::from_min_size(
+            egui::pos2(x as f32 / ppp, y as f32 / ppp),
+            egui::vec2(width as f32 / ppp, height as f32 / ppp),
         )
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_virtual_screen_rect(ctx: &egui::Context) -> egui::Rect {
+    if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
+        egui::Rect::from_min_size(egui::Pos2::ZERO, monitor_size)
     } else {
-        pos
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0))
     }
 }

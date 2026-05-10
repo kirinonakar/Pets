@@ -2887,6 +2887,7 @@ dependencies = [
  "sysinfo",
  "tokio",
  "walkdir",
+ "windows-sys 0.61.2",
  "winres",
 ]
 
