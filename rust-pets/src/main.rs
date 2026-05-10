@@ -112,6 +112,12 @@ struct PetApp {
     available_lm_studio_models: Vec<String>,
     lm_studio_fetcher: Option<Receiver<Vec<String>>>,
     last_lm_studio_fetch: f64,
+    
+    // LLM Chat
+    llm_chat_input: String,
+    show_llm_chat: bool,
+    is_llm_thinking: bool,
+    llm_chat_receiver: Option<Receiver<Result<String, String>>>,
 }
 
 impl PetApp {
@@ -175,6 +181,11 @@ impl PetApp {
             available_lm_studio_models: Vec::new(),
             lm_studio_fetcher: None,
             last_lm_studio_fetch: 0.0,
+
+            llm_chat_input: String::new(),
+            show_llm_chat: false,
+            is_llm_thinking: false,
+            llm_chat_receiver: None,
         }
     }
     
@@ -313,7 +324,7 @@ impl eframe::App for PetApp {
         // 2. Global Mouse Following & Window Movement Logic
         // Mouse follow and auto patrol must not fight each other.
         // While patrol has a target, patrol owns the movement.
-        if self.mouse_follow && self.wander_target.is_none() {
+        if self.mouse_follow && self.wander_target.is_none() && !self.show_llm_settings && !self.show_llm_chat {
             if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                 let window_pos = outer_rect.min;
                 // Pet center in screen coordinates (Updated for more compact top margin)
@@ -385,7 +396,7 @@ impl eframe::App for PetApp {
         }
 
         // 3. Automatic Patrolling (Wander)
-        if self.wander_target.is_some() && !ctx.is_context_menu_open() {
+        if self.wander_target.is_some() && !ctx.is_context_menu_open() && !self.show_llm_settings && !self.show_llm_chat {
             if let (Some(target), Some(outer_rect)) = (self.wander_target, ctx.input(|i| i.viewport().outer_rect)) {
                 let current_pos = outer_rect.min;
                 let dist_vec = target - current_pos;
@@ -452,6 +463,12 @@ impl eframe::App for PetApp {
                 
                 // Define the common context menu
                 let show_menu = |ui: &mut egui::Ui, app: &mut PetApp| {
+                    if ui.button("LLM 설정").clicked() {
+                        app.show_llm_settings = true;
+                        ui.close_menu();
+                    }
+                    ui.separator();
+
                     ui.label(egui::RichText::new("설정").strong());
                     ui.checkbox(&mut app.mouse_follow, "마우스 따라오기");
                     ui.checkbox(&mut app.show_stats, "그래프 표시");
@@ -483,11 +500,6 @@ impl eframe::App for PetApp {
                     ui.separator();
                     if ui.button("종료").clicked() {
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    ui.separator();
-                    if ui.button("LLM 설정").clicked() {
-                        app.show_llm_settings = true;
-                        ui.close_menu();
                     }
                 };
 
@@ -543,18 +555,11 @@ impl eframe::App for PetApp {
                                         if response.double_clicked() {
                                             self.pending_action = Some("bonk".to_string());
                                         } else if response.clicked() && !response.dragged() {
-                                            if let Some(pet) = &self.pet {
-                                                let mut available = vec!["wave", "cheer", "surprise"];
-                                                for extra in ["half_right", "welcome_agi", "agi_box", "think", "pout", "sweep"] {
-                                                    if pet.textures.contains_key(extra) {
-                                                        available.push(extra);
-                                                    }
-                                                }
-                                                use rand::seq::SliceRandom;
-                                                let mut rng = rand::thread_rng();
-                                                if let Some(action) = available.choose(&mut rng) {
-                                                    self.pending_action = Some(action.to_string());
-                                                }
+                                            // Toggle LLM Chat
+                                            self.show_llm_chat = !self.show_llm_chat;
+                                            if self.show_llm_chat {
+                                                self.status_text = "말해봐!".to_string();
+                                                self.status_timeout = time + 2.0;
                                             }
                                         }
                                         pet_response = Some(response);
@@ -699,18 +704,33 @@ impl eframe::App for PetApp {
                                             self.last_lm_studio_fetch = 0.0; // Trigger fetch
                                         }
 
-                                        ui.label("모델 선택:");
-                                        egui::ComboBox::from_id_source("lm_studio_model")
-                                            .selected_text(&self.llm_config.lm_studio_model)
-                                            .show_ui(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label("모델:");
+                                            let selected_text = if self.llm_config.lm_studio_model.is_empty() {
+                                                "선택 안됨".to_string()
+                                            } else {
+                                                let mut s = self.llm_config.lm_studio_model.clone();
+                                                if s.len() > 15 {
+                                                    s.truncate(12);
+                                                    s.push_str("...");
+                                                }
+                                                s
+                                            };
+                                            ui.label(egui::RichText::new(selected_text).color(egui::Color32::LIGHT_BLUE));
+                                            
+                                            ui.menu_button("더보기", |ui| {
                                                 if self.available_lm_studio_models.is_empty() {
-                                                    ui.label("모델을 불러오는 중이거나 없습니다...");
+                                                    ui.label("모델이 없습니다...");
                                                 } else {
                                                     for model in &self.available_lm_studio_models {
-                                                        ui.selectable_value(&mut self.llm_config.lm_studio_model, model.clone(), model);
+                                                        if ui.selectable_label(self.llm_config.lm_studio_model == *model, model).clicked() {
+                                                            self.llm_config.lm_studio_model = model.clone();
+                                                            ui.close_menu();
+                                                        }
                                                     }
                                                 }
                                             });
+                                        });
                                         
                                         if ui.button("새로고침").clicked() {
                                             self.last_lm_studio_fetch = 0.0;
@@ -742,6 +762,90 @@ impl eframe::App for PetApp {
                         });
                     self.show_llm_settings = open;
                 }
+
+                // --- LLM Chat Window ---
+                if self.show_llm_chat {
+                    let mut open = self.show_llm_chat;
+                    let mut close_requested = false;
+                    egui::Window::new("GEMMI-Chan 과 대화하기")
+                        .open(&mut open)
+                        .resizable(false)
+                        .show(ctx, |ui| {
+                            ui.vertical(|ui| {
+                                if self.is_llm_thinking {
+                                    ui.horizontal(|ui| {
+                                        ui.spinner();
+                                        ui.label("생각 중...");
+                                    });
+                                } else {
+                                    ui.label("메시지를 입력하세요:");
+                                    let resp = ui.add(egui::TextEdit::multiline(&mut self.llm_chat_input)
+                                        .desired_width(200.0)
+                                        .desired_rows(2));
+                                    
+                                    ui.horizontal(|ui| {
+                                        if ui.button("전송").clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                                            if !self.llm_chat_input.is_empty() {
+                                                let (tx, rx) = std::sync::mpsc::channel();
+                                                let config = self.llm_config.clone();
+                                                let api_key = if config.provider == llm::LlmProvider::Google {
+                                                    Some(self.google_api_key.clone())
+                                                } else {
+                                                    None
+                                                };
+                                                let message = self.llm_chat_input.clone();
+                                                let pet_name = self.current_pet_name.clone();
+                                                
+                                                std::thread::spawn(move || {
+                                                    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                                                    
+                                                    // Load system prompt from file
+                                                    let system_prompt = if pet_name == "GEMMI-Chan" {
+                                                        std::fs::read_to_string("gemmi.txt").unwrap_or_default()
+                                                    } else if pet_name == "GP-Chan" {
+                                                        std::fs::read_to_string("GPchan.txt").unwrap_or_default()
+                                                    } else {
+                                                        String::new()
+                                                    };
+
+                                                    let res = rt.block_on(async {
+                                                        let mut messages = Vec::new();
+                                                        if !system_prompt.is_empty() {
+                                                            messages.push(llm::ChatMessage { 
+                                                                role: "system".to_string(), 
+                                                                content: system_prompt 
+                                                            });
+                                                        }
+                                                        messages.push(llm::ChatMessage { 
+                                                            role: "user".to_string(), 
+                                                            content: message 
+                                                        });
+
+                                                        llm::chat_completion(&config, api_key.as_deref(), messages).await
+                                                    });
+                                                    let _ = tx.send(res.map_err(|e| e.to_string()));
+                                                });
+                                                
+                                                self.llm_chat_receiver = Some(rx);
+                                                self.is_llm_thinking = true;
+                                                self.llm_chat_input.clear();
+                                                
+                                                if let Some(pet) = &mut self.pet {
+                                                    pet.set_action("think", time);
+                                                    self.status_text = "생각 중...".to_string();
+                                                    self.status_timeout = time + 10.0;
+                                                }
+                                            }
+                                        }
+                                        if ui.button("닫기").clicked() {
+                                            close_requested = true;
+                                        }
+                                    });
+                                }
+                            });
+                        });
+                    self.show_llm_chat = open && !close_requested;
+                }
             });
 
         // --- LM Studio Model Fetching Logic ---
@@ -769,6 +873,30 @@ impl eframe::App for PetApp {
                     self.llm_config.lm_studio_model = self.available_lm_studio_models[0].clone();
                 }
                 self.lm_studio_fetcher = None;
+            }
+        }
+
+        // --- LLM Chat Response Handling ---
+        if let Some(rx) = &self.llm_chat_receiver {
+            if let Ok(res) = rx.try_recv() {
+                self.is_llm_thinking = false;
+                match res {
+                    Ok(text) => {
+                        self.status_text = text;
+                        self.status_timeout = time + 10.0; // Show response for longer
+                        if let Some(pet) = &mut self.pet {
+                            pet.set_action("wave", time);
+                        }
+                    }
+                    Err(err) => {
+                        self.status_text = format!("Error: {}", err);
+                        self.status_timeout = time + 5.0;
+                        if let Some(pet) = &mut self.pet {
+                            pet.set_action("pout", time);
+                        }
+                    }
+                }
+                self.llm_chat_receiver = None;
             }
         }
 

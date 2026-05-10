@@ -82,6 +82,12 @@ pub fn set_google_api_key(key: &str) -> Result<(), Box<dyn Error>> {
 }
 
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
 #[derive(Deserialize)]
 struct LmStudioModelsResponse {
     data: Vec<LmStudioModel>,
@@ -92,6 +98,62 @@ struct LmStudioModel {
     id: String,
 }
 
+#[derive(Serialize)]
+struct LmStudioChatRequest {
+    model: String,
+    messages: Vec<ChatMessage>,
+    temperature: f32,
+}
+
+#[derive(Deserialize)]
+struct LmStudioChatResponse {
+    choices: Vec<LmStudioChoice>,
+}
+
+#[derive(Deserialize)]
+struct LmStudioChoice {
+    message: ChatMessage,
+}
+
+#[derive(Serialize)]
+struct GoogleGeminiRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_instruction: Option<GoogleContent>,
+    pub contents: Vec<GoogleContent>,
+}
+
+#[derive(Serialize)]
+struct GoogleContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    pub parts: Vec<GooglePart>,
+}
+
+#[derive(Serialize)]
+struct GooglePart {
+    pub text: String,
+}
+
+#[derive(Deserialize)]
+struct GoogleGeminiResponse {
+    candidates: Vec<GoogleCandidate>,
+}
+
+#[derive(Deserialize)]
+struct GoogleCandidate {
+    content: GoogleContentResponse,
+}
+
+#[derive(Deserialize)]
+struct GoogleContentResponse {
+    parts: Vec<GooglePartResponse>,
+}
+
+#[derive(Deserialize)]
+struct GooglePartResponse {
+    text: String,
+}
+
 pub async fn fetch_lm_studio_models(endpoint: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let url = format!("{}/models", endpoint.trim_end_matches('/'));
     let client = reqwest::Client::new();
@@ -100,6 +162,67 @@ pub async fn fetch_lm_studio_models(endpoint: &str) -> Result<Vec<String>, Box<d
     Ok(data.data.into_iter().map(|m| m.id).collect())
 }
 
-// Helper for checking loaded models in LM Studio (often shown in the model list if multiple are available)
-// But LM Studio usually returns all available models.
-// Some OpenAI compatible endpoints return 'owned_by' or similar but LM Studio's /v1/models is standard.
+pub async fn chat_completion(
+    config: &LlmConfig,
+    api_key: Option<&str>,
+    messages: Vec<ChatMessage>,
+) -> Result<String, Box<dyn Error>> {
+    let client = reqwest::Client::new();
+
+    match config.provider {
+        LlmProvider::LmStudio => {
+            let url = format!("{}/chat/completions", config.lm_studio_endpoint.trim_end_matches('/'));
+            let req = LmStudioChatRequest {
+                model: config.lm_studio_model.clone(),
+                messages,
+                temperature: 0.7,
+            };
+            let resp = client.post(url).json(&req).send().await?;
+            let data: LmStudioChatResponse = resp.json().await?;
+            Ok(data.choices.first().map(|c| c.message.content.clone()).unwrap_or_default())
+        }
+        LlmProvider::Google => {
+            let key = api_key.ok_or("Google API Key is missing")?;
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+                config.google_model, key
+            );
+            
+            let mut system_instruction = None;
+            let mut contents = Vec::new();
+
+            for m in messages {
+                if m.role == "system" {
+                    system_instruction = Some(GoogleContent {
+                        role: None,
+                        parts: vec![GooglePart { text: m.content }],
+                    });
+                } else {
+                    let role = if m.role == "assistant" || m.role == "model" {
+                        "model".to_string()
+                    } else {
+                        "user".to_string()
+                    };
+                    contents.push(GoogleContent {
+                        role: Some(role),
+                        parts: vec![GooglePart { text: m.content }],
+                    });
+                }
+            }
+
+            let req = GoogleGeminiRequest { system_instruction, contents };
+            let resp = client.post(url).json(&req).send().await?;
+            
+            if !resp.status().is_success() {
+                let err_text = resp.text().await?;
+                return Err(format!("Google API Error: {}", err_text).into());
+            }
+
+            let data: GoogleGeminiResponse = resp.json().await?;
+            Ok(data.candidates.first()
+                .and_then(|c| c.content.parts.first())
+                .map(|p| p.text.clone())
+                .unwrap_or_default())
+        }
+    }
+}
