@@ -226,7 +226,8 @@ impl eframe::App for PetApp {
             if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                 let current_pos = outer_rect.min;
                 let clamped_pos = clamp_to_screen(ctx, current_pos);
-                if (current_pos.x - clamped_pos.x).abs() > 2.0 || (current_pos.y - clamped_pos.y).abs() > 2.0 {
+                // Only move if significantly off-screen to prevent jitter
+                if (current_pos.x - clamped_pos.x).abs() > 1.0 || (current_pos.y - clamped_pos.y).abs() > 1.0 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(clamped_pos));
                 }
             }
@@ -337,7 +338,9 @@ impl eframe::App for PetApp {
                                 let move_vec = dist_vec.normalized() * speed;
                                 
                                 let new_pos = clamp_to_screen(ctx, window_pos + move_vec);
-                                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
+                                if (new_pos.x - window_pos.x).abs() > 0.1 || (new_pos.y - window_pos.y).abs() > 0.1 {
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
+                                }
                                 self.wander_target = None; // Reset wander if following mouse
                             }
                         } else {
@@ -380,14 +383,21 @@ impl eframe::App for PetApp {
                     } else {
                         let move_step = dist_vec.normalized() * 0.65; // Slightly faster patrol
                         let next_pos = clamp_to_screen(ctx, current_pos + move_step);
-                        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(next_pos));
                         
-                        if pet.current_action != "walk" { 
-                            pet.set_action("walk", time); 
-                            self.status_text = "순찰중...".to_string();
-                            self.status_timeout = time + 2.0;
+                        // Bounce/Stop Logic: If we are stuck at the edge, stop wandering
+                        if (next_pos.x - current_pos.x).abs() < 0.1 && (next_pos.y - current_pos.y).abs() < 0.1 {
+                            self.wander_target = None;
+                            pet.set_action("idle", time);
+                        } else {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(next_pos));
+                            
+                            if pet.current_action != "walk" { 
+                                pet.set_action("walk", time); 
+                                self.status_text = "순찰중...".to_string();
+                                self.status_timeout = time + 2.0;
+                            }
+                            pet.facing_right = move_step.x > 0.0;
                         }
-                        pet.facing_right = move_step.x > 0.0;
                     }
                 }
             }
@@ -729,7 +739,7 @@ fn main() -> eframe::Result<()> {
             .with_transparent(true)
             .with_decorations(false)
             .with_always_on_top()
-            .with_inner_size([600.0, 800.0])
+            .with_inner_size([400.0, 600.0])
             .with_icon(icon_data.unwrap_or_default()),
         ..Default::default()
     };
@@ -744,13 +754,16 @@ fn main() -> eframe::Result<()> {
 fn clamp_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
     let screen_rect = get_virtual_screen_rect(ctx);
     
-    // Updated clamping for the new 240x260 window size.
-    let effective_width = 200.0;  // Pet (160) + Stats/Margin
-    let effective_height = 220.0; // Top space (30) + Pet (160) + Margin
+    // The window is 600x800, but the pet is in the top-left area (~180x200).
+    // To keep the right-click menu and other UI elements within reach, 
+    // we use margins that allow the window to go partially off-screen 
+    // so the pet can reach the edges, while keeping the main interaction area safe.
+    let pet_margin_x = 160.0; 
+    let pet_margin_y = 180.0;
     
     egui::pos2(
-        pos.x.clamp(screen_rect.min.x, (screen_rect.max.x - effective_width).max(screen_rect.min.x)),
-        pos.y.clamp(screen_rect.min.y - 20.0, (screen_rect.max.y - effective_height).max(screen_rect.min.y)) // Allow speech bubble to go slightly off-top
+        pos.x.clamp(screen_rect.min.x, (screen_rect.max.x - pet_margin_x).max(screen_rect.min.x)),
+        pos.y.clamp(screen_rect.min.y - 20.0, (screen_rect.max.y - pet_margin_y).max(screen_rect.min.y))
     )
 }
 
