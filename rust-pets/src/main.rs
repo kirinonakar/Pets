@@ -649,6 +649,14 @@ impl eframe::App for PetApp {
                 self.status_text = if is_gemmi { "메모리가 부족한 것 같아요..." } else { "메모리가 부족해요..." }.to_string();
                 self.status_timeout = time + 3.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
+            } else if self.stats.gpu_usage.unwrap_or(0.0) > 90.0 {
+                self.status_text = if is_gemmi { "그래픽 카드가 불타고 있어요!" } else { "GPU 가열중! 뜨거워요!" }.to_string();
+                self.status_timeout = time + 3.0;
+                if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
+            } else if self.stats.gpu_mem_pct.unwrap_or(0.0) > 90.0 {
+                self.status_text = if is_gemmi { "비디오 메모리가 꽉 찼어요!" } else { "VRAM 부족! 정리가 필요해요" }.to_string();
+                self.status_timeout = time + 3.0;
+                if let Some(pet) = &mut self.pet { pet.set_action("pout", time); }
             } else {
                 use chrono::Timelike;
                 let hour = chrono::Local::now().hour();
