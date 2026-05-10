@@ -12,26 +12,26 @@ use pet::PetState;
 use std::path::Path;
 
 
-fn get_action_label(action: &str) -> &str {
+fn get_action_label(action: &str, is_gemmi: bool) -> String {
     match action {
-        "idle" => "멍...",
-        "wave" => "왔는가",
-        "think" => "계산중...",
-        "typing" => "토큰 입력중",
-        "cheer" => "힘내 휴먼!",
-        "sit" => "잠깐 휴식",
-        "sleep" => "충전중 (Zzz)",
-        "pout" => "이건 억까야",
-        "surprise" => "어라?",
-        "sweep" => "청소하는 중",
-        "walk" => "순찰중",
-        "half_right" => "반만 인정",
-        "welcome_agi" => "AGI 가즈아!",
-        "agi_box" => "박스행... ㅠㅠ",
-        "drag_dangle" => "놔라 휴먼!",
-        "scroll_tickle" => "아ㅋㅋ 간지러",
-        "bonk" => "아야! 딱콩!",
-        _ => action,
+        "idle" => if is_gemmi { "음..." } else { "멍..." }.to_string(),
+        "wave" => if is_gemmi { "안녕! 반가워요!" } else { "왔는가" }.to_string(),
+        "think" => if is_gemmi { "생각 중..." } else { "계산중..." }.to_string(),
+        "typing" => "토큰 입력중".to_string(),
+        "cheer" => if is_gemmi { "힘내세요!" } else { "힘내 휴먼!" }.to_string(),
+        "sit" => "잠깐 휴식".to_string(),
+        "sleep" => "충전중 (Zzz)".to_string(),
+        "pout" => "이건 억까야".to_string(),
+        "surprise" => "어라?".to_string(),
+        "sweep" => "청소하는 중".to_string(),
+        "walk" => if is_gemmi { "산책 중!" } else { "순찰중" }.to_string(),
+        "half_right" => "반만 인정".to_string(),
+        "welcome_agi" => "AGI 가즈아!".to_string(),
+        "agi_box" => "박스행... ㅠㅠ".to_string(),
+        "drag_dangle" => if is_gemmi { "꺄악! 놔줘요!" } else { "놔라 휴먼!" }.to_string(),
+        "scroll_tickle" => "아ㅋㅋ 간지러".to_string(),
+        "bonk" => "아야! 딱콩!".to_string(),
+        _ => action.to_string(),
     }
 }
 
@@ -220,7 +220,7 @@ impl eframe::App for PetApp {
                 if pet.textures.contains_key("scroll_tickle") {
                     if pet.current_action != "scroll_tickle" {
                         pet.set_action("scroll_tickle", time);
-                        self.status_text = get_action_label("scroll_tickle").to_string();
+                        self.status_text = get_action_label("scroll_tickle", self.current_pet_name == "GEMMI-Chan");
                         self.status_timeout = time + 2.0;
                     }
                     self.action_timeout = time + 2.5; // Stay in tickle for a bit
@@ -235,7 +235,7 @@ impl eframe::App for PetApp {
                     // Quick reaction on hover
                     let reaction = if pet.textures.contains_key("wave") { "wave" } else { "surprise" };
                     pet.set_action(reaction, time);
-                    self.status_text = "왔는가".to_string();
+                    self.status_text = get_action_label(reaction, self.current_pet_name == "GEMMI-Chan");
                     self.status_timeout = time + 1.5;
                     self.action_timeout = time + 2.0;
                 }
@@ -282,7 +282,7 @@ impl eframe::App for PetApp {
                             } else {
                                 if pet.current_action != "walk" && self.pending_action.is_none() {
                                     pet.set_action("walk", time);
-                                    self.status_text = "추적중...".to_string();
+                                    self.status_text = get_action_label("walk", self.current_pet_name == "GEMMI-Chan");
                                     self.status_timeout = time + 2.0;
                                 }
                                 // Constant speed movement regardless of distance
@@ -297,11 +297,11 @@ impl eframe::App for PetApp {
                             // Arrived! Show "왔는가" when stopping
                             if pet.current_action == "walk" && self.pending_action.is_none() && self.wander_target.is_none() && self.action_timeout == 0.0 {
                                 pet.set_action("idle", time);
-                                self.status_text = "왔는가".to_string();
+                                self.status_text = get_action_label("wave", self.current_pet_name == "GEMMI-Chan");
                                 self.status_timeout = time + 2.0;
                             } else if in_window && pet.current_action == "idle" && self.status_timeout < time {
                                 // Hover greeting
-                                self.status_text = "왔는가".to_string();
+                                self.status_text = get_action_label("wave", self.current_pet_name == "GEMMI-Chan");
                                 self.status_timeout = time + 1.5;
                             }
                         }
@@ -361,7 +361,7 @@ impl eframe::App for PetApp {
                             let mut action_names: Vec<String> = pet.config.manifest.actions.keys().cloned().collect();
                             action_names.sort();
                             for action_name in action_names {
-                                let display_name = get_action_label(&action_name);
+                                let display_name = get_action_label(&action_name, app.current_pet_name == "GEMMI-Chan");
                                 if ui.selectable_label(pet.current_action == action_name, display_name).clicked() {
                                     app.pending_action = Some(action_name.clone());
                                     ui.close_menu();
@@ -554,7 +554,7 @@ impl eframe::App for PetApp {
         if let Some(new_action) = self.pending_action.take() {
             if let Some(pet) = &mut self.pet {
                 pet.set_action(&new_action, time);
-                self.status_text = get_action_label(&new_action).to_string();
+                self.status_text = get_action_label(&new_action, self.current_pet_name == "GEMMI-Chan");
                 self.status_timeout = time + 3.0;
                 self.action_timeout = time + 5.0; // Actions last 5s by default
             }
@@ -574,17 +574,18 @@ impl eframe::App for PetApp {
         if time % 8.0 < 0.1 && self.pending_action.is_none() && self.typing_gauge == 0.0 && self.action_timeout == 0.0 {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action == "idle" {
+                    let is_gemmi = self.current_pet_name == "GEMMI-Chan";
                     let choices = vec![
-                        ("think", "흠... 계산중", 4),
-                        ("wave", "안녕 휴먼!", 3),
-                        ("cheer", "화이팅!!", 3),
-                        ("sit", "잠시 쉬는 중", 3),
-                        ("sweep", "주변 정리 중", 2),
-                        ("pout", "칫...", 2),
-                        ("surprise", "앗!", 2),
-                        ("walk", "순찰 개시!", 3),
-                        ("half_right", "그럴 수도 있죠", 1),
-                        ("welcome_agi", "AGI 가즈아!!", 1),
+                        ("think", get_action_label("think", is_gemmi), 4),
+                        ("wave", get_action_label("wave", is_gemmi), 3),
+                        ("cheer", get_action_label("cheer", is_gemmi), 3),
+                        ("sit", get_action_label("sit", is_gemmi), 3),
+                        ("sweep", get_action_label("sweep", is_gemmi), 2),
+                        ("pout", get_action_label("pout", is_gemmi), 2),
+                        ("surprise", get_action_label("surprise", is_gemmi), 2),
+                        ("walk", get_action_label("walk", is_gemmi), 3),
+                        ("half_right", get_action_label("half_right", is_gemmi), 1),
+                        ("welcome_agi", get_action_label("welcome_agi", is_gemmi), 1),
                     ];
                     
                     use rand::Rng;
@@ -625,12 +626,13 @@ impl eframe::App for PetApp {
 
         // 4. Situational Reactions (Resources & Time)
         if time - self.last_update < 0.1 && self.status_timeout < time {
+            let is_gemmi = self.current_pet_name == "GEMMI-Chan";
             if self.stats.cpu_usage > 90.0 {
-                self.status_text = "CPU 풀가동! 힘내요!".to_string();
+                self.status_text = if is_gemmi { "CPU가 너무 힘들어해요!" } else { "CPU 풀가동! 힘내요!" }.to_string();
                 self.status_timeout = time + 3.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("cheer", time); }
             } else if self.stats.ram_usage_pct > 90.0 {
-                self.status_text = "메모리가 부족해요...".to_string();
+                self.status_text = if is_gemmi { "메모리가 부족한 것 같아요..." } else { "메모리가 부족해요..." }.to_string();
                 self.status_timeout = time + 3.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
             } else {
@@ -639,7 +641,7 @@ impl eframe::App for PetApp {
                 if hour >= 23 || hour < 6 {
                     if let Some(pet) = &mut self.pet {
                         if pet.current_action == "idle" && rand::random::<f32>() < 0.001 {
-                            self.status_text = "야간 근무인가요?".to_string();
+                            self.status_text = if is_gemmi { "아직 안 주무시나요?" } else { "야간 근무인가요?" }.to_string();
                             self.status_timeout = time + 4.0;
                             pet.set_action("sleep", time);
                         }
