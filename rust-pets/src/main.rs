@@ -243,11 +243,14 @@ impl eframe::App for PetApp {
             if mouse_rel.x >= 0.0 && mouse_rel.x <= 190.0 && mouse_rel.y >= 5.0 && mouse_rel.y <= 195.0 {
                 is_hovering_interactive = true;
             }
+            // LLM Bubble area (Below pet): expanded for scrolling/selection
+            if (self.llm_response_timeout > time || self.is_llm_thinking) && 
+               mouse_rel.x >= 0.0 && mouse_rel.x <= 250.0 && mouse_rel.y >= 195.0 && mouse_rel.y <= 450.0 {
+                is_hovering_interactive = true;
+            }
         }
 
         // 5. Mouse Passthrough Control
-        // We set passthrough based on our manual hover check using global coordinates.
-        // This ensures the window becomes interactive BEFORE the user clicks.
         if ctx.is_context_menu_open() || is_hovering_interactive || self.show_llm_settings || self.show_llm_chat {
             ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(false));
         } else {
@@ -691,78 +694,80 @@ impl eframe::App for PetApp {
                             let bubble_width = (text.chars().count() as f32 * 7.0).clamp(80.0, 200.0);
                             let x_offset = if bubble_width > 120.0 { 10.0 } else { 40.0 };
                             let bubble_pos = rect.left_bottom() + egui::vec2(x_offset, 10.0); 
-                            // Add 16.0px for the scrollbar
-                            let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width + 16.0, 200.0));
                             
-                            ui.allocate_ui_at_rect(bubble_rect, |ui| {
-                                let bubble_fill = egui::Color32::from_rgba_premultiplied(240, 250, 255, 240); // Slightly blueish
-                                let bubble_stroke_color = egui::Color32::from_rgb(100, 150, 255);
-                                let bubble_stroke = egui::Stroke::new(1.5, bubble_stroke_color);
+                            // Use Area for better interaction handling
+                            egui::Area::new(egui::Id::new("llm_bubble"))
+                                .fixed_pos(bubble_pos)
+                                .order(egui::Order::Foreground)
+                                .show(ctx, |ui| {
+                                    let bubble_fill = egui::Color32::from_rgba_premultiplied(240, 250, 255, 240); // Slightly blueish
+                                    let bubble_stroke_color = egui::Color32::from_rgb(100, 150, 255);
+                                    let bubble_stroke = egui::Stroke::new(1.5, bubble_stroke_color);
 
-                                ui.vertical(|ui| {
-                                    ui.spacing_mut().item_spacing.y = 0.0;
-                                    
-                                    // 1. Draw the Speech bubble tail (Triangle pointing UP)
-                                    let tail_width = 12.0;
-                                    let tail_height = 8.0;
-                                    let tail_x_offset = 15.0;
-                                    
-                                    let tail_rect = egui::Rect::from_min_size(
-                                        ui.cursor().min + egui::vec2(tail_x_offset, 0.0),
-                                        egui::vec2(tail_width, tail_height)
-                                    );
+                                    ui.vertical(|ui| {
+                                        ui.spacing_mut().item_spacing.y = 0.0;
+                                        
+                                        // 1. Draw the Speech bubble tail (Triangle pointing UP)
+                                        let tail_width = 12.0;
+                                        let tail_height = 8.0;
+                                        let tail_x_offset = 15.0;
+                                        
+                                        let tail_rect = egui::Rect::from_min_size(
+                                            ui.cursor().min + egui::vec2(tail_x_offset, 0.0),
+                                            egui::vec2(tail_width, tail_height)
+                                        );
 
-                                    let p1 = tail_rect.left_bottom();
-                                    let p2 = tail_rect.right_bottom();
-                                    let p3 = tail_rect.center_top();
+                                        let tp1 = tail_rect.left_bottom();
+                                        let tp2 = tail_rect.right_bottom();
+                                        let tp3 = tail_rect.center_top();
 
-                                    ui.painter().add(egui::Shape::convex_polygon(
-                                        vec![p1, p2, p3],
-                                        bubble_fill,
-                                        egui::Stroke::NONE,
-                                    ));
-                                    ui.painter().line_segment([p1, p3], bubble_stroke);
-                                    ui.painter().line_segment([p2, p3], bubble_stroke);
+                                        ui.painter().add(egui::Shape::convex_polygon(
+                                            vec![tp1, tp2, tp3],
+                                            bubble_fill,
+                                            egui::Stroke::NONE,
+                                        ));
+                                        ui.painter().line_segment([tp1, tp3], bubble_stroke);
+                                        ui.painter().line_segment([tp2, tp3], bubble_stroke);
 
-                                    // 2. Draw the main bubble box
-                                    egui::Frame::none()
-                                        .fill(bubble_fill)
-                                        .rounding(8.0)
-                                        .stroke(bubble_stroke)
-                                        .inner_margin(6.0)
-                                        .show(ui, |ui| {
-                                            ui.set_max_width(bubble_width + 10.0);
-                                            egui::ScrollArea::vertical()
-                                                .id_source("llm_response_scroll")
-                                                .max_height(140.0)
-                                                .auto_shrink([true; 2])
-                                                .show(ui, |ui| {
-                                                    ui.set_width(bubble_width);
-                                                    let mut job = egui::text::LayoutJob::default();
-                                                    job.wrap.max_width = bubble_width;
-                                                    let parts: Vec<&str> = text.split("**").collect();
-                                                    for (i, part) in parts.iter().enumerate() {
-                                                        let mut format = egui::TextFormat {
-                                                            font_id: egui::FontId::proportional(12.0),
-                                                            color: egui::Color32::BLACK,
-                                                            ..Default::default()
-                                                        };
-                                                        if i % 2 == 1 {
-                                                            format.font_id = egui::TextStyle::Button.resolve(ui.style());
+                                        // 2. Draw the main bubble box
+                                        egui::Frame::none()
+                                            .fill(bubble_fill)
+                                            .rounding(8.0)
+                                            .stroke(bubble_stroke)
+                                            .inner_margin(6.0)
+                                            .show(ui, |ui| {
+                                                ui.set_max_width(bubble_width + 10.0);
+                                                egui::ScrollArea::vertical()
+                                                    .id_source("llm_response_scroll")
+                                                    .max_height(140.0)
+                                                    .auto_shrink([true; 2])
+                                                    .show(ui, |ui| {
+                                                        ui.set_width(bubble_width);
+                                                        let mut job = egui::text::LayoutJob::default();
+                                                        job.wrap.max_width = bubble_width;
+                                                        let parts: Vec<&str> = text.split("**").collect();
+                                                        for (i, part) in parts.iter().enumerate() {
+                                                            let mut format = egui::TextFormat {
+                                                                font_id: egui::FontId::proportional(12.0),
+                                                                color: egui::Color32::BLACK,
+                                                                ..Default::default()
+                                                            };
+                                                            if i % 2 == 1 {
+                                                                format.font_id = egui::TextStyle::Button.resolve(ui.style());
+                                                            }
+                                                            job.append(*part, 0.0, format);
                                                         }
-                                                        job.append(*part, 0.0, format);
-                                                    }
-                                                    ui.add(egui::Label::new(job).selectable(true));
-                                                });
-                                        });
+                                                        ui.add(egui::Label::new(job).selectable(true));
+                                                    });
+                                            });
 
-                                    // 3. Mask the junction
-                                    ui.painter().line_segment(
-                                        [p1 + egui::vec2(0.5, 0.0), p2 - egui::vec2(0.5, 0.0)], 
-                                        egui::Stroke::new(2.0, bubble_fill)
-                                    );
+                                        // 3. Mask the junction
+                                        ui.painter().line_segment(
+                                            [tp1 + egui::vec2(0.5, 0.0), tp2 - egui::vec2(0.5, 0.0)], 
+                                            egui::Stroke::new(2.0, bubble_fill)
+                                        );
+                                    });
                                 });
-                            });
                         }
                     }
                 });
