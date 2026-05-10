@@ -819,9 +819,11 @@ impl eframe::App for PetApp {
 
                                                                         if self.llm_chat_history.is_empty() {
                                                                             let system_prompt = if self.current_pet_name == "GEMMI-Chan" {
-                                                                                std::fs::read_to_string("gemmi.txt").unwrap_or_default()
+                                                                                std::fs::read_to_string("gemmi.txt")
+                                                                                    .unwrap_or_else(|_| include_str!("../gemmi.txt").to_string())
                                                                             } else if self.current_pet_name == "GP-Chan" {
-                                                                                std::fs::read_to_string("GPchan.txt").unwrap_or_default()
+                                                                                std::fs::read_to_string("GPchan.txt")
+                                                                                    .unwrap_or_else(|_| include_str!("../GPchan.txt").to_string())
                                                                             } else {
                                                                                 String::new()
                                                                             };
