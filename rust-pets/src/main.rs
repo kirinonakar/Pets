@@ -3,13 +3,16 @@
 mod monitor;
 mod config;
 mod pet;
+mod llm;
 
 use eframe::egui;
 use monitor::{Monitor, SystemStats};
 use device_query::{DeviceQuery, DeviceState};
 use config::PetConfig;
 use pet::PetState;
-use std::path::Path;
+use llm::{LlmConfig, LlmProvider, GOOGLE_MODELS};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::Receiver;
 
 
 fn get_action_labels(action: &str, is_gemmi: bool) -> Vec<&'static str> {
@@ -101,6 +104,14 @@ struct PetApp {
     wander_target: Option<egui::Pos2>,
     was_hovering: bool,
     last_auto_behavior_time: f64,
+    
+    // LLM Settings
+    llm_config: LlmConfig,
+    google_api_key: String,
+    show_llm_settings: bool,
+    available_lm_studio_models: Vec<String>,
+    lm_studio_fetcher: Option<Receiver<Vec<String>>>,
+    last_lm_studio_fetch: f64,
 }
 
 impl PetApp {
@@ -157,6 +168,13 @@ impl PetApp {
             wander_target: None,
             was_hovering: false,
             last_auto_behavior_time: 0.0,
+            
+            llm_config: load_llm_config(),
+            google_api_key: llm::get_google_api_key().unwrap_or_default(),
+            show_llm_settings: false,
+            available_lm_studio_models: Vec::new(),
+            lm_studio_fetcher: None,
+            last_lm_studio_fetch: 0.0,
         }
     }
     
@@ -466,6 +484,11 @@ impl eframe::App for PetApp {
                     if ui.button("종료").clicked() {
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                     }
+                    ui.separator();
+                    if ui.button("LLM 설정").clicked() {
+                        app.show_llm_settings = true;
+                        ui.close_menu();
+                    }
                 };
 
                 ui.vertical(|ui| {
@@ -651,7 +674,103 @@ impl eframe::App for PetApp {
                         }
                     }
                 });
+
+                // --- LLM Settings Window ---
+                if self.show_llm_settings {
+                    let mut open = self.show_llm_settings;
+                    egui::Window::new("LLM 설정")
+                        .open(&mut open)
+                        .resizable(false)
+                        .show(ctx, |ui| {
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new("LLM 서비스 선택").strong());
+                                ui.horizontal(|ui| {
+                                    ui.radio_value(&mut self.llm_config.provider, LlmProvider::LmStudio, "LM Studio");
+                                    ui.radio_value(&mut self.llm_config.provider, LlmProvider::Google, "Google Gemini");
+                                });
+                                ui.separator();
+
+                                match self.llm_config.provider {
+                                    LlmProvider::LmStudio => {
+                                        ui.label("LM Studio Endpoint:");
+                                        let resp = ui.text_edit_singleline(&mut self.llm_config.lm_studio_endpoint);
+                                        if resp.changed() {
+                                            self.available_lm_studio_models.clear();
+                                            self.last_lm_studio_fetch = 0.0; // Trigger fetch
+                                        }
+
+                                        ui.label("모델 선택:");
+                                        egui::ComboBox::from_id_source("lm_studio_model")
+                                            .selected_text(&self.llm_config.lm_studio_model)
+                                            .show_ui(ui, |ui| {
+                                                if self.available_lm_studio_models.is_empty() {
+                                                    ui.label("모델을 불러오는 중이거나 없습니다...");
+                                                } else {
+                                                    for model in &self.available_lm_studio_models {
+                                                        ui.selectable_value(&mut self.llm_config.lm_studio_model, model.clone(), model);
+                                                    }
+                                                }
+                                            });
+                                        
+                                        if ui.button("새로고침").clicked() {
+                                            self.last_lm_studio_fetch = 0.0;
+                                        }
+                                    }
+                                    LlmProvider::Google => {
+                                        ui.label("Google API Key:");
+                                        if ui.add(egui::TextEdit::singleline(&mut self.google_api_key).password(true)).changed() {
+                                            let _ = llm::set_google_api_key(&self.google_api_key);
+                                        }
+                                        
+                                        ui.label("모델 선택:");
+                                        egui::ComboBox::from_id_source("google_model")
+                                            .selected_text(&self.llm_config.google_model)
+                                            .show_ui(ui, |ui| {
+                                                for model in GOOGLE_MODELS {
+                                                    ui.selectable_value(&mut self.llm_config.google_model, model.to_string(), *model);
+                                                }
+                                            });
+                                    }
+                                }
+                                
+                                ui.separator();
+                                if ui.button("저장").clicked() {
+                                    save_llm_config(&self.llm_config);
+                                    self.show_llm_settings = false;
+                                }
+                            });
+                        });
+                    self.show_llm_settings = open;
+                }
             });
+
+        // --- LM Studio Model Fetching Logic ---
+        if self.llm_config.provider == LlmProvider::LmStudio && (time - self.last_lm_studio_fetch > 30.0 || self.last_lm_studio_fetch == 0.0) {
+            if self.lm_studio_fetcher.is_none() {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let endpoint = self.llm_config.lm_studio_endpoint.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                    let models = rt.block_on(async {
+                        llm::fetch_lm_studio_models(&endpoint).await.unwrap_or_default()
+                    });
+                    let _ = tx.send(models);
+                });
+                self.lm_studio_fetcher = Some(rx);
+                self.last_lm_studio_fetch = time;
+            }
+        }
+
+        if let Some(rx) = &self.lm_studio_fetcher {
+            if let Ok(models) = rx.try_recv() {
+                self.available_lm_studio_models = models;
+                // Auto-select if current model is empty and models are available
+                if self.llm_config.lm_studio_model.is_empty() && !self.available_lm_studio_models.is_empty() {
+                    self.llm_config.lm_studio_model = self.available_lm_studio_models[0].clone();
+                }
+                self.lm_studio_fetcher = None;
+            }
+        }
 
         if let Some(new_pet) = self.pending_pet_switch.take() {
             self.switch_pet(ctx, &new_pet);
@@ -856,5 +975,30 @@ fn get_virtual_screen_rect(ctx: &egui::Context) -> egui::Rect {
         egui::Rect::from_min_size(egui::Pos2::ZERO, monitor_size)
     } else {
         egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0))
+    }
+}
+
+fn get_config_path() -> PathBuf {
+    let mut path = std::env::current_exe().unwrap_or_default();
+    path.set_file_name("app_config.json");
+    path
+}
+
+fn load_llm_config() -> LlmConfig {
+    let path = get_config_path();
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(config) = serde_json::from_str(&content) {
+                return config;
+            }
+        }
+    }
+    LlmConfig::default()
+}
+
+fn save_llm_config(config: &LlmConfig) {
+    let path = get_config_path();
+    if let Ok(content) = serde_json::to_string_pretty(config) {
+        let _ = std::fs::write(path, content);
     }
 }

@@ -18,6 +18,9 @@ walkdir = "2.3"
 include_dir = "0.7"
 device_query = "2.1"
 windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging"] }
+keyring = "4.0.0"
+keyring-core = "1.0.0"
+reqwest = { version = "0.13.3", features = ["json"] }
 
 [build-dependencies]
 winres = "0.1"
