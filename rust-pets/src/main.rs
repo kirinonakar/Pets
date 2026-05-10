@@ -801,15 +801,24 @@ impl eframe::App for PetApp {
                                                             });
                                                         } else {
                                                             let resp = ui.add(egui::TextEdit::multiline(&mut self.llm_chat_input)
+                                                                .id_source("llm_chat_input")
+                                                                .lock_focus(true)
                                                                 .desired_width(bubble_width)
                                                                 .desired_rows(1)
                                                                 .font(egui::FontId::proportional(11.0))
                                                                 .hint_text("메시지를 입력하세요..."));
                                                             
+                                                            let mut submit = false;
+                                                            if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.ctrl) {
+                                                                submit = true;
+                                                                // Remove the newline added by Ctrl+Enter if necessary
+                                                                self.llm_chat_input = self.llm_chat_input.trim_end_matches('\n').to_string();
+                                                            }
+                                                            
                                                             ui.add_space(8.0);
                                                             ui.horizontal(|ui| {
                                                                 let send_btn = ui.add_sized([50.0, 20.0], egui::Button::new("전송"));
-                                                                if send_btn.clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                                                                if send_btn.clicked() || submit {
                                                                     if !self.llm_chat_input.is_empty() {
                                                                         // Session timeout check
                                                                         if time - self.last_llm_chat_time > 1800.0 {
