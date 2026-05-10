@@ -184,8 +184,8 @@ pub async fn chat_completion(
         LlmProvider::Google => {
             let key = api_key.ok_or("Google API Key is missing")?;
             let url = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-                config.google_model, key
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+                config.google_model
             );
             
             let mut system_instruction = None;
@@ -211,11 +211,16 @@ pub async fn chat_completion(
             }
 
             let req = GoogleGeminiRequest { system_instruction, contents };
-            let resp = client.post(url).json(&req).send().await?;
+            let resp = client.post(url)
+                .header("x-goog-api-key", key)
+                .json(&req)
+                .send()
+                .await?;
             
             if !resp.status().is_success() {
                 let err_text = resp.text().await?;
-                return Err(format!("Google API Error: {}", err_text).into());
+                let sanitized_err = err_text.replace(key, "***");
+                return Err(format!("Google API Error: {}", sanitized_err).into());
             }
 
             let data: GoogleGeminiResponse = resp.json().await?;
