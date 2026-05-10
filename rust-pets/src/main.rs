@@ -48,6 +48,39 @@ fn get_action_label(action: &str, is_gemmi: bool) -> String {
     labels.choose(&mut rand::thread_rng()).unwrap().to_string()
 }
 
+fn get_resource_label(resource: &str, is_gemmi: bool) -> String {
+    use rand::seq::SliceRandom;
+    let labels = match resource {
+        "cpu_high" => if is_gemmi { 
+            vec!["으악, CPU가 불타고 있어!", "컴퓨터가 너무 힘들어해!", "열기 대박... 계란 구워도 되겠어", "CPU 살려어어!", "팬 돌아가는 소리 들려?"] 
+        } else { 
+            vec!["CPU 풀가동! 힘내요!", "연산량이 엄청나네요", "CPU가 열일 중입니다!", "성능 한계 돌파!", "CPU 온도가 높아요!"] 
+        },
+        "ram_high" => if is_gemmi { 
+            vec!["메모리가 꽉 찼어! 답답해!", "나 들어갈 자리가 없잖아!", "정리 좀 해줘!", "램이 꽉꽉 찼어!", "비우기 좀 눌러주면 안 돼?"] 
+        } else { 
+            vec!["메모리가 부족해요...", "정리가 필요해 보입니다", "RAM 사용량이 높아요!", "여유 공간이 거의 없네요", "메모리 최적화가 필요해요"] 
+        },
+        "gpu_high" => if is_gemmi { 
+            vec!["그래픽 카드가 비명을 질러!", "GPU가 활활! 타오른다!", "연기 나는 거 아냐?", "화면 뚫고 나올 것 같아!", "GPU 살려어!"] 
+        } else { 
+            vec!["GPU 가열중! 뜨거워요!", "그래픽 연산이 많네요", "GPU 온도가 높습니다!", "VGA 성능 풀가동!", "열기가 느껴지네요"] 
+        },
+        "vram_high" => if is_gemmi { 
+            vec!["비디오 메모리 부족! 화면 멈추겠어!", "VRAM 꽉 찼어, 좀 비워줘!", "헐, 메모리 용량 실화야?", "그래픽 메모리가 꽉 찼어!", "텍스처가 너무 무거워!"] 
+        } else { 
+            vec!["VRAM 부족! 정리가 필요해요", "비디오 메모리가 가득 찼습니다", "텍스처 로딩이 힘들어 보여요", "VRAM 용량이 간당간당해요", "그래픽 설정이 높나요?"] 
+        },
+        "night" => if is_gemmi { 
+            vec!["졸린데... 아직 안 자?", "나만 두고 잘 거야?", "밤샘은 피부에 안 좋대!", "하암... 잠 안 와?", "언제 잘 거야? 기다릴게"] 
+        } else { 
+            vec!["야간 근무인가요?", "아직 깨어 계시네요", "늦은 밤입니다. 쉬엄쉬엄 하세요", "밤샘 작업 화이팅!", "충전이 필요한 시간이에요"] 
+        },
+        _ => vec!["...", "흠?", "어라?"],
+    };
+    labels.choose(&mut rand::thread_rng()).unwrap().to_string()
+}
+
 struct PetApp {
     monitor: Monitor,
     stats: SystemStats,
@@ -642,19 +675,19 @@ impl eframe::App for PetApp {
         if time - self.last_update < 0.1 && self.status_timeout < time {
             let is_gemmi = self.current_pet_name == "GEMMI-Chan";
             if self.stats.cpu_usage > 90.0 {
-                self.status_text = if is_gemmi { "CPU가 너무 힘들어해요!" } else { "CPU 풀가동! 힘내요!" }.to_string();
+                self.status_text = get_resource_label("cpu_high", is_gemmi);
                 self.status_timeout = time + 3.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("cheer", time); }
             } else if self.stats.ram_usage_pct > 90.0 {
-                self.status_text = if is_gemmi { "메모리가 부족한 것 같아요..." } else { "메모리가 부족해요..." }.to_string();
+                self.status_text = get_resource_label("ram_high", is_gemmi);
                 self.status_timeout = time + 3.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
             } else if self.stats.gpu_usage.unwrap_or(0.0) > 90.0 {
-                self.status_text = if is_gemmi { "그래픽 카드가 불타고 있어요!" } else { "GPU 가열중! 뜨거워요!" }.to_string();
+                self.status_text = get_resource_label("gpu_high", is_gemmi);
                 self.status_timeout = time + 3.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
             } else if self.stats.gpu_mem_pct.unwrap_or(0.0) > 90.0 {
-                self.status_text = if is_gemmi { "비디오 메모리가 꽉 찼어요!" } else { "VRAM 부족! 정리가 필요해요" }.to_string();
+                self.status_text = get_resource_label("vram_high", is_gemmi);
                 self.status_timeout = time + 3.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("pout", time); }
             } else {
@@ -663,7 +696,7 @@ impl eframe::App for PetApp {
                 if hour >= 23 || hour < 6 {
                     if let Some(pet) = &mut self.pet {
                         if pet.current_action == "idle" && rand::random::<f32>() < 0.001 {
-                            self.status_text = if is_gemmi { "아직 안 주무시나요?" } else { "야간 근무인가요?" }.to_string();
+                            self.status_text = get_resource_label("night", is_gemmi);
                             self.status_timeout = time + 4.0;
                             pet.set_action("sleep", time);
                         }
