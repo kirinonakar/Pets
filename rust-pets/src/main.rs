@@ -202,6 +202,13 @@ impl PetApp {
         if let Some(config) = PetConfig::load_embedded(name) {
             self.pet = Some(PetState::new(config, ctx));
             self.current_pet_name = name.to_string();
+            
+            // Reset LLM state on character change
+            self.llm_chat_history.clear();
+            self.llm_response_text.clear();
+            self.llm_response_timeout = 0.0;
+            self.last_llm_chat_time = 0.0;
+            self.is_llm_thinking = false;
         }
     }
 }
