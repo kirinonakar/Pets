@@ -118,6 +118,8 @@ struct PetApp {
     show_llm_chat: bool,
     is_llm_thinking: bool,
     llm_chat_receiver: Option<Receiver<Result<String, String>>>,
+    llm_response_text: String,
+    llm_response_timeout: f64,
 }
 
 impl PetApp {
@@ -186,6 +188,8 @@ impl PetApp {
             show_llm_chat: false,
             is_llm_thinking: false,
             llm_chat_receiver: None,
+            llm_response_text: String::new(),
+            llm_response_timeout: 0.0,
         }
     }
     
@@ -505,7 +509,7 @@ impl eframe::App for PetApp {
 
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.add_space(30.0); // Compact top space
+                    ui.add_space(60.0); // More space at top for speech bubbles
                     
                     let mut pet_rect = None;
 
@@ -613,11 +617,12 @@ impl eframe::App for PetApp {
 
                     // 2. Speech Bubble Overlay (Drawn last to be on top)
                     if let Some(rect) = pet_rect {
-                        if time < self.status_timeout || self.is_llm_thinking {
+                        // 2a. Standard Speech Bubble (Above)
+                        if time < self.status_timeout {
                             let bubble_width = (self.status_text.chars().count() as f32 * 7.0).clamp(80.0, 200.0);
                             // Adjust position based on width to keep it somewhat centered over the head
                             let x_offset = if bubble_width > 120.0 { 10.0 } else { 40.0 };
-                            let bubble_pos = rect.left_top() + egui::vec2(x_offset, -25.0); 
+                            let bubble_pos = rect.left_top() + egui::vec2(x_offset, -20.0); 
                             let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width, 200.0));
                             
                             ui.allocate_ui_at_rect(bubble_rect, |ui| {
@@ -671,6 +676,64 @@ impl eframe::App for PetApp {
 
                                     // 3. Mask the bubble's bottom stroke at the junction
                                     // Draw a small line of the fill color over the junction to "erase" the border
+                                    ui.painter().line_segment(
+                                        [p1 + egui::vec2(0.5, 0.0), p2 - egui::vec2(0.5, 0.0)], 
+                                        egui::Stroke::new(2.0, bubble_fill)
+                                    );
+                                });
+                            });
+                        }
+
+                        // 2b. LLM Speech Bubble (Below)
+                        if time < self.llm_response_timeout || self.is_llm_thinking {
+                            let text = if self.is_llm_thinking { "생각 중..." } else { &self.llm_response_text };
+                            let bubble_width = (text.chars().count() as f32 * 7.0).clamp(80.0, 200.0);
+                            let x_offset = if bubble_width > 120.0 { 10.0 } else { 40.0 };
+                            let bubble_pos = rect.left_bottom() + egui::vec2(x_offset, 10.0); 
+                            let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width, 200.0));
+                            
+                            ui.allocate_ui_at_rect(bubble_rect, |ui| {
+                                let bubble_fill = egui::Color32::from_rgba_premultiplied(240, 250, 255, 240); // Slightly blueish
+                                let bubble_stroke_color = egui::Color32::from_rgb(100, 150, 255);
+                                let bubble_stroke = egui::Stroke::new(1.5, bubble_stroke_color);
+
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    
+                                    // 1. Draw the Speech bubble tail (Triangle pointing UP)
+                                    let tail_width = 12.0;
+                                    let tail_height = 8.0;
+                                    let tail_x_offset = 15.0;
+                                    
+                                    let tail_rect = egui::Rect::from_min_size(
+                                        ui.cursor().min + egui::vec2(tail_x_offset, 0.0),
+                                        egui::vec2(tail_width, tail_height)
+                                    );
+
+                                    let p1 = tail_rect.left_bottom();
+                                    let p2 = tail_rect.right_bottom();
+                                    let p3 = tail_rect.center_top();
+
+                                    ui.painter().add(egui::Shape::convex_polygon(
+                                        vec![p1, p2, p3],
+                                        bubble_fill,
+                                        egui::Stroke::NONE,
+                                    ));
+                                    ui.painter().line_segment([p1, p3], bubble_stroke);
+                                    ui.painter().line_segment([p2, p3], bubble_stroke);
+
+                                    // 2. Draw the main bubble box
+                                    egui::Frame::none()
+                                        .fill(bubble_fill)
+                                        .rounding(8.0)
+                                        .stroke(bubble_stroke)
+                                        .inner_margin(6.0)
+                                        .show(ui, |ui| {
+                                            ui.set_max_width(bubble_width);
+                                            ui.label(egui::RichText::new(text).size(12.0).color(egui::Color32::BLACK).strong());
+                                        });
+
+                                    // 3. Mask the junction
                                     ui.painter().line_segment(
                                         [p1 + egui::vec2(0.5, 0.0), p2 - egui::vec2(0.5, 0.0)], 
                                         egui::Stroke::new(2.0, bubble_fill)
@@ -773,6 +836,7 @@ impl eframe::App for PetApp {
                     egui::Window::new(egui::RichText::new(title).size(12.0))
                         .open(&mut open)
                         .resizable(false)
+                        .default_pos([10.0, 240.0])
                         .show(ctx, |ui| {
                             ui.style_mut().override_text_style = Some(egui::TextStyle::Small);
                             ui.style_mut().visuals.window_rounding = 8.0.into();
@@ -840,10 +904,10 @@ impl eframe::App for PetApp {
                                                 close_requested = true; // Auto close on send
                                                 
                                                 if let Some(pet) = &mut self.pet {
-                                                    pet.set_action("think", time);
-                                                    self.status_text = "생각 중...".to_string();
-                                                    self.status_timeout = time + 10.0;
+                                                    pet.set_action("idle", time);
                                                 }
+                                                self.llm_response_text = "생각 중...".to_string();
+                                                self.llm_response_timeout = time + 60.0;
                                             }
                                         }
                                         if ui.add_sized([60.0, 25.0], egui::Button::new("닫기")).clicked() {
@@ -891,15 +955,15 @@ impl eframe::App for PetApp {
                 self.is_llm_thinking = false;
                 match res {
                     Ok(text) => {
-                        self.status_text = text;
-                        self.status_timeout = time + 10.0; // Show response for longer
+                        self.llm_response_text = text;
+                        self.llm_response_timeout = time + 10.0;
                         if let Some(pet) = &mut self.pet {
                             pet.set_action("wave", time);
                         }
                     }
                     Err(err) => {
-                        self.status_text = format!("Error: {}", err);
-                        self.status_timeout = time + 10.0;
+                        self.llm_response_text = format!("Error: {}", err);
+                        self.llm_response_timeout = time + 10.0;
                         if let Some(pet) = &mut self.pet {
                             pet.set_action("pout", time);
                         }
