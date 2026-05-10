@@ -792,17 +792,54 @@ impl eframe::App for PetApp {
                                                                 ui.set_width(bubble_width);
                                                                 let mut job = egui::text::LayoutJob::default();
                                                                 job.wrap.max_width = bubble_width;
-                                                                let parts: Vec<&str> = text.split("**").collect();
-                                                                for (i, part) in parts.iter().enumerate() {
-                                                                    let mut format = egui::TextFormat {
-                                                                        font_id: egui::FontId::proportional(12.0),
-                                                                        color: egui::Color32::BLACK,
-                                                                        ..Default::default()
-                                                                    };
-                                                                    if i % 2 == 1 {
-                                                                        format.font_id = egui::TextStyle::Button.resolve(ui.style());
+                                                                
+                                                                for (line_idx, line) in text.lines().enumerate() {
+                                                                    if line_idx > 0 {
+                                                                        job.append("\n", 0.0, egui::TextFormat::default());
                                                                     }
-                                                                    job.append(*part, 0.0, format);
+
+                                                                    let mut font_size = 12.0;
+                                                                    let mut line_is_bold = false;
+                                                                    let mut display_line = line;
+
+                                                                    if line.starts_with("# ") {
+                                                                        font_size = 14.0;
+                                                                        line_is_bold = true;
+                                                                        display_line = &line[2..];
+                                                                    } else if line.starts_with("## ") {
+                                                                        font_size = 13.0;
+                                                                        line_is_bold = true;
+                                                                        display_line = &line[3..];
+                                                                    } else if line.starts_with("### ") {
+                                                                        font_size = 12.5;
+                                                                        line_is_bold = true;
+                                                                        display_line = &line[4..];
+                                                                    } else if line.trim_start().starts_with("- ") {
+                                                                        let indent = line.len() - line.trim_start().len();
+                                                                        job.append(&" ".repeat(indent), 0.0, egui::TextFormat::default());
+                                                                        job.append("• ", 0.0, egui::TextFormat {
+                                                                            font_id: egui::FontId::proportional(12.0),
+                                                                            color: egui::Color32::BLACK,
+                                                                            ..Default::default()
+                                                                        });
+                                                                        display_line = line.trim_start()[2..].trim_start();
+                                                                    }
+
+                                                                    let parts: Vec<&str> = display_line.split("**").collect();
+                                                                    for (i, part) in parts.iter().enumerate() {
+                                                                        let is_bold_part = line_is_bold || (i % 2 == 1);
+                                                                        let format = egui::TextFormat {
+                                                                            font_id: if is_bold_part {
+                                                                                let button_font = egui::TextStyle::Button.resolve(ui.style());
+                                                                                egui::FontId::new(font_size, button_font.family)
+                                                                            } else {
+                                                                                egui::FontId::proportional(font_size)
+                                                                            },
+                                                                            color: egui::Color32::BLACK,
+                                                                            ..Default::default()
+                                                                        };
+                                                                        job.append(*part, 0.0, format);
+                                                                    }
                                                                 }
                                                                 ui.add(egui::Label::new(job).selectable(true));
                                                             });
