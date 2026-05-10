@@ -730,7 +730,17 @@ impl eframe::App for PetApp {
                                         .inner_margin(6.0)
                                         .show(ui, |ui| {
                                             ui.set_max_width(bubble_width);
-                                            ui.label(egui::RichText::new(text).size(12.0).color(egui::Color32::BLACK).strong());
+                                            ui.horizontal_wrapped(|ui| {
+                                                ui.spacing_mut().item_spacing.x = 0.0;
+                                                let parts: Vec<&str> = text.split("**").collect();
+                                                for (i, part) in parts.iter().enumerate() {
+                                                    let mut rt = egui::RichText::new(*part).size(12.0).color(egui::Color32::BLACK);
+                                                    if i % 2 == 1 {
+                                                        rt = rt.strong();
+                                                    }
+                                                    ui.add(egui::Label::new(rt));
+                                                }
+                                            });
                                         });
 
                                     // 3. Mask the junction
