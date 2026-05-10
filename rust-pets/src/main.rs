@@ -328,7 +328,8 @@ impl eframe::App for PetApp {
         // 2. Global Mouse Following & Window Movement Logic
         // Mouse follow and auto patrol must not fight each other.
         // While patrol has a target, patrol owns the movement.
-        if self.mouse_follow && self.wander_target.is_none() && !self.show_llm_settings && !self.show_llm_chat {
+        if self.mouse_follow && self.wander_target.is_none() && !self.show_llm_settings && !self.show_llm_chat 
+            && self.llm_response_timeout < time && !self.is_llm_thinking {
             if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                 let window_pos = outer_rect.min;
                 // Pet center in screen coordinates (Updated for more compact top margin)
@@ -690,7 +691,8 @@ impl eframe::App for PetApp {
                             let bubble_width = (text.chars().count() as f32 * 7.0).clamp(80.0, 200.0);
                             let x_offset = if bubble_width > 120.0 { 10.0 } else { 40.0 };
                             let bubble_pos = rect.left_bottom() + egui::vec2(x_offset, 10.0); 
-                            let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width, 200.0));
+                            // Add 16.0px for the scrollbar
+                            let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width + 16.0, 200.0));
                             
                             ui.allocate_ui_at_rect(bubble_rect, |ui| {
                                 let bubble_fill = egui::Color32::from_rgba_premultiplied(240, 250, 255, 240); // Slightly blueish
@@ -729,10 +731,13 @@ impl eframe::App for PetApp {
                                         .stroke(bubble_stroke)
                                         .inner_margin(6.0)
                                         .show(ui, |ui| {
-                                            ui.set_max_width(bubble_width);
+                                            ui.set_max_width(bubble_width + 10.0);
                                             egui::ScrollArea::vertical()
-                                                .max_height(160.0)
+                                                .id_source("llm_response_scroll")
+                                                .max_height(140.0)
+                                                .auto_shrink([true; 2])
                                                 .show(ui, |ui| {
+                                                    ui.set_max_width(bubble_width);
                                                     ui.horizontal_wrapped(|ui| {
                                                         ui.spacing_mut().item_spacing.x = 0.0;
                                                         let parts: Vec<&str> = text.split("**").collect();
