@@ -100,6 +100,7 @@ struct PetApp {
     last_keys: Vec<device_query::Keycode>,
     wander_target: Option<egui::Pos2>,
     was_hovering: bool,
+    last_auto_behavior_time: f64,
 }
 
 impl PetApp {
@@ -155,6 +156,7 @@ impl PetApp {
             last_keys: Vec::new(),
             wander_target: None,
             was_hovering: false,
+            last_auto_behavior_time: 0.0,
         }
     }
     
@@ -384,8 +386,11 @@ impl eframe::App for PetApp {
                         let move_step = dist_vec.normalized() * 0.65; // Slightly faster patrol
                         let next_pos = clamp_to_screen(ctx, current_pos + move_step);
                         
-                        // Bounce Logic: If we are stuck at the edge, pick a new target in the opposite direction
-                        if (next_pos.x - current_pos.x).abs() < 0.1 && (next_pos.y - current_pos.y).abs() < 0.1 {
+                        // Bounce Logic: If we are stuck at any edge, pick a new target in the opposite direction
+                        let hit_x = (next_pos.x - current_pos.x).abs() < 0.01 && move_step.x.abs() > 0.1;
+                        let hit_y = (next_pos.y - current_pos.y).abs() < 0.01 && move_step.y.abs() > 0.1;
+
+                        if hit_x || hit_y {
                             // Boundary hit! Pick a new target away from the edge
                             use rand::Rng;
                             let mut rng = rand::thread_rng();
@@ -641,7 +646,8 @@ impl eframe::App for PetApp {
         }
 
         // Automatic Behaviors (Diversified & Frequent)
-        if time % 8.0 < 0.1 && self.pending_action.is_none() && self.typing_gauge == 0.0 && self.action_timeout == 0.0 {
+        if time - self.last_auto_behavior_time > 8.0 && self.pending_action.is_none() && self.typing_gauge == 0.0 && self.action_timeout == 0.0 {
+            self.last_auto_behavior_time = time;
             if let Some(pet) = &mut self.pet {
                 if pet.current_action == "idle" {
                     let is_gemmi = self.current_pet_name == "GEMMI-Chan";
@@ -769,8 +775,8 @@ fn clamp_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
     
     // The window is 400x600, but the pet is in the top-left area (~160x160).
     // The pet starts at y=30.0 inside the window.
-    let pet_margin_x = 160.0; 
-    let pet_margin_y = 195.0; // 30 (top offset) + 160 (pet height) + 5 (padding)
+    let pet_margin_x = 175.0; // 160 (pet width) + 15 (safe buffer)
+    let pet_margin_y = 210.0; // 30 (top offset) + 160 (pet height) + 20 (safe buffer)
     
     egui::pos2(
         pos.x.clamp(screen_rect.min.x, (screen_rect.max.x - pet_margin_x).max(screen_rect.min.x)),
