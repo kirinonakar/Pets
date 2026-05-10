@@ -293,7 +293,9 @@ impl eframe::App for PetApp {
         self.was_hovering = is_hovering_interactive;
 
         // 2. Global Mouse Following & Window Movement Logic
-        if self.mouse_follow {
+        // Mouse follow and auto patrol must not fight each other.
+        // While patrol has a target, patrol owns the movement.
+        if self.mouse_follow && self.wander_target.is_none() {
             if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                 let window_pos = outer_rect.min;
                 // Pet center in screen coordinates (Updated for more compact top margin)
@@ -383,38 +385,42 @@ impl eframe::App for PetApp {
                         self.status_text = if is_gemmi { "복귀완" } else { "복귀완" }.to_string();
                         self.status_timeout = time + 2.0;
                     } else {
-                        let move_step = dist_vec.normalized() * 0.65; // Slightly faster patrol
-                        let next_pos = clamp_to_screen(ctx, current_pos + move_step);
-                        
-                        // Bounce Logic: If we are stuck at any edge, pick a new target in the opposite direction
-                        let hit_x = (next_pos.x - current_pos.x).abs() < 0.01 && move_step.x.abs() > 0.1;
-                        let hit_y = (next_pos.y - current_pos.y).abs() < 0.01 && move_step.y.abs() > 0.1;
+                        let move_step = dist_vec.normalized() * 0.75; // Slightly faster patrol
+
+                        // Keep the walk action active for the whole patrol path, including edge bounces.
+                        // Previously the edge-hit branch could skip this, so the pet moved without leg animation.
+                        if pet.current_action != "walk" {
+                            pet.set_action("walk", time);
+                            self.status_text = "순찰중...".to_string();
+                            self.status_timeout = time + 2.0;
+                        }
+                        pet.facing_right = move_step.x >= 0.0;
+
+                        let raw_next_pos = current_pos + move_step;
+                        let next_pos = clamp_to_screen(ctx, raw_next_pos);
+
+                        // Bounce when the unclamped next position tries to leave the visible screen.
+                        // Checking raw_next_pos vs next_pos is more reliable than checking whether the
+                        // window actually moved, because egui applies viewport moves on the next frame.
+                        let hit_x = (raw_next_pos.x - next_pos.x).abs() > 0.01;
+                        let hit_y = (raw_next_pos.y - next_pos.y).abs() > 0.01;
 
                         if hit_x || hit_y {
-                            // Boundary hit! Pick a new target away from the edge
-                            use rand::Rng;
-                            let mut rng = rand::thread_rng();
-                            
-                            // If we were moving right and got stuck, move left. If moving left, move right.
-                            let dx = if dist_vec.x > 0.0 { rng.gen_range(-400.0..-100.0) } else { rng.gen_range(100.0..400.0) };
-                            let dy = if dist_vec.y > 0.0 { rng.gen_range(-200.0..-50.0) } else { rng.gen_range(50.0..200.0) };
-                            
-                            let new_target = current_pos + egui::vec2(dx, dy);
-                            self.wander_target = Some(clamp_to_screen(ctx, new_target));
-                            
-                            // Visual feedback for bounce
+                            let reflected_step = egui::vec2(
+                                if hit_x { -move_step.x } else { move_step.x },
+                                if hit_y { -move_step.y } else { move_step.y },
+                            );
+                            let bounce_pos = clamp_to_screen(ctx, current_pos + reflected_step);
+
+                            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(bounce_pos));
+                            self.wander_target = Some(make_bounced_wander_target(ctx, bounce_pos, reflected_step));
+                            pet.facing_right = reflected_step.x >= 0.0;
+
                             let is_gemmi = self.current_pet_name == "GEMMI-Chan";
-                            self.status_text = if is_gemmi { "앗! 반대로!" } else { "통!" }.to_string();
+                            self.status_text = if is_gemmi { "앗! 반대로!" } else { "통! 반대로" }.to_string();
                             self.status_timeout = time + 1.0;
                         } else {
                             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(next_pos));
-                            
-                            if pet.current_action != "walk" { 
-                                pet.set_action("walk", time); 
-                                self.status_text = "순찰중...".to_string();
-                                self.status_timeout = time + 2.0;
-                            }
-                            pet.facing_right = move_step.x > 0.0;
                         }
                     }
                 }
@@ -736,6 +742,22 @@ impl eframe::App for PetApp {
 
         ctx.request_repaint();
     }
+}
+
+fn make_bounced_wander_target(ctx: &egui::Context, pos: egui::Pos2, reflected_step: egui::Vec2) -> egui::Pos2 {
+    use rand::Rng;
+
+    let mut rng = rand::thread_rng();
+    let dir = if reflected_step.length() > 0.0001 {
+        reflected_step.normalized()
+    } else {
+        egui::vec2(1.0, 0.0)
+    };
+    let side = egui::vec2(-dir.y, dir.x);
+    let forward = rng.gen_range(220.0..520.0);
+    let sideways = rng.gen_range(-140.0..140.0);
+
+    clamp_to_screen(ctx, pos + dir * forward + side * sideways)
 }
 
 fn main() -> eframe::Result<()> {
