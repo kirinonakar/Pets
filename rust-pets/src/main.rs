@@ -737,18 +737,22 @@ impl eframe::App for PetApp {
                                                 .max_height(140.0)
                                                 .auto_shrink([true; 2])
                                                 .show(ui, |ui| {
-                                                    ui.set_max_width(bubble_width);
-                                                    ui.horizontal_wrapped(|ui| {
-                                                        ui.spacing_mut().item_spacing.x = 0.0;
-                                                        let parts: Vec<&str> = text.split("**").collect();
-                                                        for (i, part) in parts.iter().enumerate() {
-                                                            let mut rt = egui::RichText::new(*part).size(12.0).color(egui::Color32::BLACK);
-                                                            if i % 2 == 1 {
-                                                                rt = rt.strong();
-                                                            }
-                                                            ui.add(egui::Label::new(rt));
+                                                    ui.set_width(bubble_width);
+                                                    let mut job = egui::text::LayoutJob::default();
+                                                    job.wrap.max_width = bubble_width;
+                                                    let parts: Vec<&str> = text.split("**").collect();
+                                                    for (i, part) in parts.iter().enumerate() {
+                                                        let mut format = egui::TextFormat {
+                                                            font_id: egui::FontId::proportional(12.0),
+                                                            color: egui::Color32::BLACK,
+                                                            ..Default::default()
+                                                        };
+                                                        if i % 2 == 1 {
+                                                            format.font_id = egui::TextStyle::Button.resolve(ui.style());
                                                         }
-                                                    });
+                                                        job.append(*part, 0.0, format);
+                                                    }
+                                                    ui.add(egui::Label::new(job).selectable(true));
                                                 });
                                         });
 
