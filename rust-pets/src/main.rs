@@ -244,7 +244,7 @@ impl eframe::App for PetApp {
         // 5. Mouse Passthrough Control
         // We set passthrough based on our manual hover check using global coordinates.
         // This ensures the window becomes interactive BEFORE the user clicks.
-        if ctx.is_context_menu_open() || is_hovering_interactive {
+        if ctx.is_context_menu_open() || is_hovering_interactive || self.show_llm_settings || self.show_llm_chat {
             ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(false));
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(true));
@@ -280,7 +280,7 @@ impl eframe::App for PetApp {
                 if pet.current_action != "typing" && pet.current_action != "drag_dangle" {
                     pet.set_action("typing", time);
                     self.status_text = get_action_label("typing", self.current_pet_name == "GEMMI-Chan");
-                    self.status_timeout = time + 2.0;
+                    self.status_timeout = time + 10.0;
                 }
             }
         } else if self.typing_gauge < 50.0 {
@@ -299,7 +299,7 @@ impl eframe::App for PetApp {
                     if pet.current_action != "scroll_tickle" {
                         pet.set_action("scroll_tickle", time);
                         self.status_text = get_action_label("scroll_tickle", self.current_pet_name == "GEMMI-Chan");
-                        self.status_timeout = time + 2.0;
+                        self.status_timeout = time + 10.0;
                     }
                     self.action_timeout = time + 2.5; // Stay in tickle for a bit
                 }
@@ -314,7 +314,7 @@ impl eframe::App for PetApp {
                     let reaction = if pet.textures.contains_key("wave") { "wave" } else { "surprise" };
                     pet.set_action(reaction, time);
                     self.status_text = get_action_label(reaction, self.current_pet_name == "GEMMI-Chan");
-                    self.status_timeout = time + 1.5;
+                    self.status_timeout = time + 10.0;
                     self.action_timeout = time + 2.0;
                 }
             }
@@ -340,7 +340,7 @@ impl eframe::App for PetApp {
                         }
                         if self.status_text == "추적중..." {
                             self.status_text = "무엇을 할까요?".to_string();
-                            self.status_timeout = time + 1.0;
+                            self.status_timeout = time + 10.0;
                         }
                     } else if pet.current_action != "typing" && pet.current_action != "drag_dangle" && self.action_timeout == 0.0 { 
                         // 1. Facing logic
@@ -358,13 +358,13 @@ impl eframe::App for PetApp {
                                     pet.set_action("idle", time);
                                     let is_gemmi = self.current_pet_name == "GEMMI-Chan";
                                     self.status_text = if is_gemmi { "놓쳤다!" } else { "놓침ㅋ" }.to_string();
-                                    self.status_timeout = time + 2.0;
+                                    self.status_timeout = time + 10.0;
                                 }
                             } else {
                                 if pet.current_action != "walk" && self.pending_action.is_none() {
                                     pet.set_action("walk", time);
                                     self.status_text = get_action_label("walk", self.current_pet_name == "GEMMI-Chan");
-                                    self.status_timeout = time + 2.0;
+                                    self.status_timeout = time + 10.0;
                                 }
                                 // Constant speed movement regardless of distance
                                 let speed = 0.8; 
@@ -382,12 +382,12 @@ impl eframe::App for PetApp {
                                 pet.set_action("idle", time);
                                 let is_gemmi = self.current_pet_name == "GEMMI-Chan";
                                 self.status_text = if is_gemmi { "잡았다!" } else { "왔는가" }.to_string();
-                                self.status_timeout = time + 2.0;
+                                self.status_timeout = time + 10.0;
                             } else if in_window && pet.current_action == "idle" && self.status_timeout < time {
                                 // Hover greeting
                                 let is_gemmi = self.current_pet_name == "GEMMI-Chan";
                                 self.status_text = if is_gemmi { "왔냐!" } else { "ㅎㅇㅎㅇ" }.to_string();
-                                self.status_timeout = time + 1.5;
+                                self.status_timeout = time + 10.0;
                             }
                         }
                     }
@@ -447,7 +447,7 @@ impl eframe::App for PetApp {
 
                             let is_gemmi = self.current_pet_name == "GEMMI-Chan";
                             self.status_text = if is_gemmi { "앗! 반대로!" } else { "통! 반대로" }.to_string();
-                            self.status_timeout = time + 1.0;
+                            self.status_timeout = time + 10.0;
                         } else {
                             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(next_pos));
                         }
@@ -541,14 +541,14 @@ impl eframe::App for PetApp {
                                                 
                                                 let is_gemmi = self.current_pet_name == "GEMMI-Chan";
                                                 self.status_text = get_action_label("drag_dangle", is_gemmi);
-                                                self.status_timeout = time + 2.0;
+                                                self.status_timeout = time + 10.0;
                                             }
                                         } else if response.drag_stopped() {
                                             if pet.current_action == "drag_dangle" {
                                                 pet.set_action("idle", time);
                                                 let is_gemmi = self.current_pet_name == "GEMMI-Chan";
                                                 self.status_text = if is_gemmi { "살았다!" } else { "살았다!" }.to_string();
-                                                self.status_timeout = time + 2.0;
+                                                self.status_timeout = time + 10.0;
                                             }
                                         }
                                         
@@ -559,7 +559,7 @@ impl eframe::App for PetApp {
                                             self.show_llm_chat = !self.show_llm_chat;
                                             if self.show_llm_chat {
                                                 self.status_text = "말해봐!".to_string();
-                                                self.status_timeout = time + 2.0;
+                                                self.status_timeout = time + 10.0;
                                             }
                                         }
                                         pet_response = Some(response);
@@ -613,11 +613,12 @@ impl eframe::App for PetApp {
 
                     // 2. Speech Bubble Overlay (Drawn last to be on top)
                     if let Some(rect) = pet_rect {
-                        if time < self.status_timeout {
-                            let bubble_width = 80.0;
-                            // Closer to head: 40.0 right (center-ish), -25.0 up (just above head)
-                            let bubble_pos = rect.left_top() + egui::vec2(40.0, -25.0); 
-                            let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width, 100.0));
+                        if time < self.status_timeout || self.is_llm_thinking {
+                            let bubble_width = (self.status_text.chars().count() as f32 * 7.0).clamp(80.0, 200.0);
+                            // Adjust position based on width to keep it somewhat centered over the head
+                            let x_offset = if bubble_width > 120.0 { 10.0 } else { 40.0 };
+                            let bubble_pos = rect.left_top() + egui::vec2(x_offset, -25.0); 
+                            let bubble_rect = egui::Rect::from_min_size(bubble_pos, egui::vec2(bubble_width, 200.0));
                             
                             ui.allocate_ui_at_rect(bubble_rect, |ui| {
                                 let bubble_fill = egui::Color32::from_rgba_premultiplied(255, 255, 255, 240);
@@ -683,9 +684,10 @@ impl eframe::App for PetApp {
                 // --- LLM Settings Window ---
                 if self.show_llm_settings {
                     let mut open = self.show_llm_settings;
-                    egui::Window::new("LLM 설정")
+                    egui::Window::new(egui::RichText::new("LLM 설정").size(12.0))
                         .open(&mut open)
                         .resizable(false)
+                        .default_width(300.0)
                         .show(ctx, |ui| {
                             ui.vertical(|ui| {
                                 ui.label(egui::RichText::new("LLM 서비스 선택").strong());
@@ -710,8 +712,8 @@ impl eframe::App for PetApp {
                                                 "선택 안됨".to_string()
                                             } else {
                                                 let mut s = self.llm_config.lm_studio_model.clone();
-                                                if s.len() > 15 {
-                                                    s.truncate(12);
+                                                if s.len() > 25 {
+                                                    s.truncate(22);
                                                     s.push_str("...");
                                                 }
                                                 s
@@ -767,24 +769,30 @@ impl eframe::App for PetApp {
                 if self.show_llm_chat {
                     let mut open = self.show_llm_chat;
                     let mut close_requested = false;
-                    egui::Window::new("GEMMI-Chan 과 대화하기")
+                    let title = format!("{} 과 대화하기", self.current_pet_name);
+                    egui::Window::new(egui::RichText::new(title).size(12.0))
                         .open(&mut open)
                         .resizable(false)
                         .show(ctx, |ui| {
+                            ui.style_mut().override_text_style = Some(egui::TextStyle::Small);
+                            ui.style_mut().visuals.window_rounding = 8.0.into();
+                            
                             ui.vertical(|ui| {
                                 if self.is_llm_thinking {
                                     ui.horizontal(|ui| {
                                         ui.spinner();
-                                        ui.label("생각 중...");
+                                        ui.label(egui::RichText::new("생각 중...").size(10.0));
                                     });
                                 } else {
-                                    ui.label("메시지를 입력하세요:");
+                                    ui.label(egui::RichText::new("메시지를 입력하세요:").size(12.0).strong());
                                     let resp = ui.add(egui::TextEdit::multiline(&mut self.llm_chat_input)
-                                        .desired_width(200.0)
-                                        .desired_rows(2));
+                                        .desired_width(180.0)
+                                        .desired_rows(2)
+                                        .font(egui::FontId::proportional(11.0)));
                                     
                                     ui.horizontal(|ui| {
-                                        if ui.button("전송").clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                                        let send_btn = ui.add_sized([60.0, 25.0], egui::Button::new("전송"));
+                                        if send_btn.clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                                             if !self.llm_chat_input.is_empty() {
                                                 let (tx, rx) = std::sync::mpsc::channel();
                                                 let config = self.llm_config.clone();
@@ -829,6 +837,7 @@ impl eframe::App for PetApp {
                                                 self.llm_chat_receiver = Some(rx);
                                                 self.is_llm_thinking = true;
                                                 self.llm_chat_input.clear();
+                                                close_requested = true; // Auto close on send
                                                 
                                                 if let Some(pet) = &mut self.pet {
                                                     pet.set_action("think", time);
@@ -837,7 +846,7 @@ impl eframe::App for PetApp {
                                                 }
                                             }
                                         }
-                                        if ui.button("닫기").clicked() {
+                                        if ui.add_sized([60.0, 25.0], egui::Button::new("닫기")).clicked() {
                                             close_requested = true;
                                         }
                                     });
@@ -890,7 +899,7 @@ impl eframe::App for PetApp {
                     }
                     Err(err) => {
                         self.status_text = format!("Error: {}", err);
-                        self.status_timeout = time + 5.0;
+                        self.status_timeout = time + 10.0;
                         if let Some(pet) = &mut self.pet {
                             pet.set_action("pout", time);
                         }
@@ -903,14 +912,14 @@ impl eframe::App for PetApp {
         if let Some(new_pet) = self.pending_pet_switch.take() {
             self.switch_pet(ctx, &new_pet);
             self.status_text = format!("{} 로 전환!", new_pet);
-            self.status_timeout = time + 4.0;
+            self.status_timeout = time + 10.0;
         }
 
         if let Some(new_action) = self.pending_action.take() {
             if let Some(pet) = &mut self.pet {
                 pet.set_action(&new_action, time);
                 self.status_text = get_action_label(&new_action, self.current_pet_name == "GEMMI-Chan");
-                self.status_timeout = time + 3.0;
+                self.status_timeout = time + 10.0;
                 self.action_timeout = time + 5.0; // Actions last 5s by default
             }
         }
@@ -970,7 +979,7 @@ impl eframe::App for PetApp {
                             if pet.current_action != act {
                                 pet.set_action(act, time);
                                 self.status_text = label.to_string();
-                                self.status_timeout = time + 3.0;
+                                self.status_timeout = time + 10.0;
                             }
                             break;
                         }
@@ -985,19 +994,19 @@ impl eframe::App for PetApp {
             let is_gemmi = self.current_pet_name == "GEMMI-Chan";
             if self.stats.cpu_usage > 90.0 {
                 self.status_text = get_resource_label("cpu_high", is_gemmi);
-                self.status_timeout = time + 3.0;
+                self.status_timeout = time + 10.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("cheer", time); }
             } else if self.stats.ram_usage_pct > 90.0 {
                 self.status_text = get_resource_label("ram_high", is_gemmi);
-                self.status_timeout = time + 3.0;
+                self.status_timeout = time + 10.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
             } else if self.stats.gpu_usage.unwrap_or(0.0) > 90.0 {
                 self.status_text = get_resource_label("gpu_high", is_gemmi);
-                self.status_timeout = time + 3.0;
+                self.status_timeout = time + 10.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
             } else if self.stats.gpu_mem_pct.unwrap_or(0.0) > 90.0 {
                 self.status_text = get_resource_label("vram_high", is_gemmi);
-                self.status_timeout = time + 3.0;
+                self.status_timeout = time + 10.0;
                 if let Some(pet) = &mut self.pet { pet.set_action("pout", time); }
             } else {
                 use chrono::Timelike;
@@ -1006,7 +1015,7 @@ impl eframe::App for PetApp {
                     if let Some(pet) = &mut self.pet {
                         if pet.current_action == "idle" && rand::random::<f32>() < 0.001 {
                             self.status_text = get_resource_label("night", is_gemmi);
-                            self.status_timeout = time + 4.0;
+                            self.status_timeout = time + 10.0;
                             pet.set_action("sleep", time);
                         }
                     }
