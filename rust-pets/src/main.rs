@@ -484,12 +484,12 @@ impl eframe::App for PetApp {
         }
         // -----------------------------------------------------------
 
-        // 0. Screen Boundary Check (Snap back if off-screen and not being dragged)
+        // 0. Screen Boundary Check (Snap back if the pet itself is off-screen and not being dragged)
         let is_dragging = ctx.input(|i| i.pointer.any_down());
         if !is_dragging {
             if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                 let current_pos = outer_rect.min;
-                let clamped_pos = clamp_to_screen(ctx, current_pos);
+                let clamped_pos = clamp_pet_to_screen(ctx, current_pos);
                 // Only move if significantly off-screen to prevent jitter
                 if (current_pos.x - clamped_pos.x).abs() > 1.0
                     || (current_pos.y - clamped_pos.y).abs() > 1.0
@@ -635,7 +635,7 @@ impl eframe::App for PetApp {
                                 let speed = 0.8;
                                 let move_vec = dist_vec.normalized() * speed;
 
-                                let new_pos = clamp_to_screen(ctx, window_pos + move_vec);
+                                let new_pos = clamp_pet_to_screen(ctx, window_pos + move_vec);
                                 if (new_pos.x - window_pos.x).abs() > 0.1
                                     || (new_pos.y - window_pos.y).abs() > 0.1
                                 {
@@ -715,9 +715,10 @@ impl eframe::App for PetApp {
                         pet.facing_right = move_step.x >= 0.0;
 
                         let (pre_hit_x, pre_hit_y) =
-                            outward_edge_hits(ctx, current_pos, move_step, PATROL_EDGE_INSET);
+                            outward_pet_edge_hits(ctx, current_pos, move_step, PATROL_EDGE_INSET);
                         let raw_next_pos = current_pos + move_step;
-                        let next_pos = clamp_to_screen(ctx, raw_next_pos);
+                        let next_pos =
+                            clamp_pet_to_screen_with_inset(ctx, raw_next_pos, PATROL_EDGE_INSET);
 
                         // Bounce before the pet actually leaves the visible screen. The old path waited
                         // until the next point needed clamping, which could briefly trigger the generic
@@ -739,7 +740,7 @@ impl eframe::App for PetApp {
                             } else {
                                 egui::vec2(if hit_x { -move_step.x.signum() } else { 1.0 }, 0.0)
                             };
-                            let bounce_pos = clamp_to_screen_with_inset(
+                            let bounce_pos = clamp_pet_to_screen_with_inset(
                                 ctx,
                                 current_pos + reflected_dir * EDGE_BOUNCE_PUSH,
                                 PATROL_EDGE_INSET,
@@ -1446,7 +1447,7 @@ impl eframe::App for PetApp {
                                 let dy = rng.gen_range(-200.0..200.0);
                                 if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                                     let target = outer_rect.min + egui::vec2(dx, dy);
-                                    self.wander_target = Some(clamp_to_screen_with_inset(
+                                    self.wander_target = Some(clamp_pet_to_screen_with_inset(
                                         ctx,
                                         target,
                                         PATROL_TARGET_EDGE_INSET,
@@ -1514,8 +1515,10 @@ impl eframe::App for PetApp {
     }
 }
 
-const PET_WINDOW_VISIBLE_WIDTH: f32 = 175.0;
-const PET_WINDOW_VISIBLE_HEIGHT: f32 = 210.0;
+const PET_DRAW_OFFSET_X: f32 = 0.0;
+const PET_DRAW_OFFSET_Y: f32 = 60.0;
+const PET_SPRITE_SIZE: f32 = 160.0;
+const PET_EDGE_SNAP_INSET: f32 = 0.0;
 const PATROL_EDGE_INSET: f32 = 16.0;
 const PATROL_TARGET_EDGE_INSET: f32 = 64.0;
 const EDGE_BOUNCE_PUSH: f32 = 24.0;
@@ -1539,7 +1542,7 @@ fn make_bounced_wander_target(
 
     // Keep the new target well inside the screen. This avoids the target being
     // immediately clamped back to the same edge, which caused the out/in loop.
-    clamp_to_screen_with_inset(
+    clamp_pet_to_screen_with_inset(
         ctx,
         pos + dir * forward + side * sideways,
         PATROL_TARGET_EDGE_INSET,
@@ -1586,23 +1589,23 @@ fn viewport_pixels_per_point(ctx: &egui::Context) -> f32 {
     if ppp > 0.0 { ppp } else { 1.0 }
 }
 
-fn clamp_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
-    clamp_to_screen_with_inset(ctx, pos, PATROL_EDGE_INSET)
+fn clamp_pet_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
+    clamp_pet_to_screen_with_inset(ctx, pos, PET_EDGE_SNAP_INSET)
 }
 
-fn clamp_to_screen_with_inset(ctx: &egui::Context, pos: egui::Pos2, inset: f32) -> egui::Pos2 {
+fn clamp_pet_to_screen_with_inset(ctx: &egui::Context, pos: egui::Pos2, inset: f32) -> egui::Pos2 {
     let screen_rect = get_virtual_screen_rect(ctx);
     let inset = inset.max(0.0);
 
-    let min_x = screen_rect.min.x + inset;
-    let min_y = screen_rect.min.y + inset;
-    let max_x = (screen_rect.max.x - PET_WINDOW_VISIBLE_WIDTH - inset).max(min_x);
-    let max_y = (screen_rect.max.y - PET_WINDOW_VISIBLE_HEIGHT - inset).max(min_y);
+    let min_x = screen_rect.min.x - PET_DRAW_OFFSET_X + inset;
+    let min_y = screen_rect.min.y - PET_DRAW_OFFSET_Y + inset;
+    let max_x = (screen_rect.max.x - PET_DRAW_OFFSET_X - PET_SPRITE_SIZE - inset).max(min_x);
+    let max_y = (screen_rect.max.y - PET_DRAW_OFFSET_Y - PET_SPRITE_SIZE - inset).max(min_y);
 
     egui::pos2(pos.x.clamp(min_x, max_x), pos.y.clamp(min_y, max_y))
 }
 
-fn outward_edge_hits(
+fn outward_pet_edge_hits(
     ctx: &egui::Context,
     pos: egui::Pos2,
     step: egui::Vec2,
@@ -1612,10 +1615,10 @@ fn outward_edge_hits(
     let inset = inset.max(0.0);
     let lookahead = EDGE_BOUNCE_PUSH;
 
-    let min_x = screen_rect.min.x + inset;
-    let min_y = screen_rect.min.y + inset;
-    let max_x = (screen_rect.max.x - PET_WINDOW_VISIBLE_WIDTH - inset).max(min_x);
-    let max_y = (screen_rect.max.y - PET_WINDOW_VISIBLE_HEIGHT - inset).max(min_y);
+    let min_x = screen_rect.min.x - PET_DRAW_OFFSET_X + inset;
+    let min_y = screen_rect.min.y - PET_DRAW_OFFSET_Y + inset;
+    let max_x = (screen_rect.max.x - PET_DRAW_OFFSET_X - PET_SPRITE_SIZE - inset).max(min_x);
+    let max_y = (screen_rect.max.y - PET_DRAW_OFFSET_Y - PET_SPRITE_SIZE - inset).max(min_y);
 
     let hit_x = (step.x < 0.0 && pos.x <= min_x + lookahead)
         || (step.x > 0.0 && pos.x >= max_x - lookahead);
