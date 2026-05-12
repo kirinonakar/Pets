@@ -46,9 +46,8 @@ const KEY_NAME: &str = "google-api-key";
 static KEYRING_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
 fn ensure_keyring_store() -> Result<(), Box<dyn Error>> {
-    let result = KEYRING_INIT.get_or_init(|| {
-        keyring::use_native_store(false).map_err(|err| err.to_string())
-    });
+    let result = KEYRING_INIT
+        .get_or_init(|| keyring::use_native_store(false).map_err(|err| err.to_string()));
 
     match result {
         Ok(()) => Ok(()),
@@ -80,7 +79,6 @@ pub fn set_google_api_key(key: &str) -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -171,7 +169,10 @@ pub async fn chat_completion(
 
     match config.provider {
         LlmProvider::LmStudio => {
-            let url = format!("{}/chat/completions", config.lm_studio_endpoint.trim_end_matches('/'));
+            let url = format!(
+                "{}/chat/completions",
+                config.lm_studio_endpoint.trim_end_matches('/')
+            );
             let req = LmStudioChatRequest {
                 model: config.lm_studio_model.clone(),
                 messages,
@@ -179,7 +180,11 @@ pub async fn chat_completion(
             };
             let resp = client.post(url).json(&req).send().await?;
             let data: LmStudioChatResponse = resp.json().await?;
-            Ok(data.choices.first().map(|c| c.message.content.clone()).unwrap_or_default())
+            Ok(data
+                .choices
+                .first()
+                .map(|c| c.message.content.clone())
+                .unwrap_or_default())
         }
         LlmProvider::Google => {
             let key = api_key.ok_or("Google API Key is missing")?;
@@ -187,7 +192,7 @@ pub async fn chat_completion(
                 "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
                 config.google_model
             );
-            
+
             let mut system_instruction = None;
             let mut contents = Vec::new();
 
@@ -210,13 +215,17 @@ pub async fn chat_completion(
                 }
             }
 
-            let req = GoogleGeminiRequest { system_instruction, contents };
-            let resp = client.post(url)
+            let req = GoogleGeminiRequest {
+                system_instruction,
+                contents,
+            };
+            let resp = client
+                .post(url)
                 .header("x-goog-api-key", key)
                 .json(&req)
                 .send()
                 .await?;
-            
+
             if !resp.status().is_success() {
                 let err_text = resp.text().await?;
                 let sanitized_err = err_text.replace(key, "***");
@@ -224,7 +233,9 @@ pub async fn chat_completion(
             }
 
             let data: GoogleGeminiResponse = resp.json().await?;
-            Ok(data.candidates.first()
+            Ok(data
+                .candidates
+                .first()
                 .and_then(|c| c.content.parts.first())
                 .map(|p| p.text.clone())
                 .unwrap_or_default())

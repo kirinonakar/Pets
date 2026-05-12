@@ -1,5 +1,5 @@
-use sysinfo::System;
 use nvml_wrapper::Nvml;
+use sysinfo::System;
 
 pub struct SystemStats {
     pub cpu_usage: f32,

@@ -1,84 +1,259 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod monitor;
 mod config;
-mod pet;
 mod llm;
+mod monitor;
+mod pet;
 
-use eframe::egui;
-use monitor::{Monitor, SystemStats};
-use device_query::{DeviceQuery, DeviceState};
 use config::PetConfig;
+use device_query::{DeviceQuery, DeviceState};
+use eframe::egui;
+use llm::{GOOGLE_MODELS, LlmConfig, LlmProvider};
+use monitor::{Monitor, SystemStats};
 use pet::PetState;
-use llm::{LlmConfig, LlmProvider, GOOGLE_MODELS};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 
-
 fn get_action_labels(action: &str, is_gemmi: bool) -> Vec<&'static str> {
     match action {
-        "idle" => if is_gemmi { vec!["나 불렀어?", "심심해", "놀아줘"] } else { vec!["멍...", "생각중", "대기중"] },
-        "wave" => if is_gemmi { vec!["야호!", "여기야!", "봤지?"] } else { vec!["ㅎㅇ", "하이", "왔는가"] },
-        "think" => if is_gemmi { vec!["내가 맞음", "흠냐", "천재모드"] } else { vec!["흠...", "계산중", "그럴수도"] },
-        "typing" => if is_gemmi { vec!["숙제중!", "타닥타닥", "답안작성"] } else { vec!["토큰입력중", "타닥타닥", "작성중"] },
-        "cheer" => if is_gemmi { vec!["상장감!", "칭찬해줘", "내가 일등"] } else { vec!["힘내 휴먼", "할수있다", "가보자"] },
-        "sit" => if is_gemmi { vec!["삐짐", "쉬는중", "책상점령"] } else { vec!["절전중", "쉬는중", "잠깐휴식"] },
-        "sleep" => if is_gemmi { vec!["졸려...", "5분만", "수업끝?"] } else { vec!["Zzz..", "수면중", "충전중"] },
-        "pout" => if is_gemmi { vec!["아니거든!", "흥!", "내가 맞아"] } else { vec!["억까임", "흥...", "이건 억까"] },
-        "surprise" => if is_gemmi { vec!["으악!", "뭐야!", "깜짝이야"] } else { vec!["어라?", "헉", "뭐임?"] },
-        "sweep" => if is_gemmi { vec!["청소싫어!", "대충싹싹", "내가왜?"] } else { vec!["청소각", "싹싹", "정리중"] },
-        "walk" => if is_gemmi { vec!["돌격!", "우다다", "순찰놀이"] } else { vec!["순찰중", "어슬렁", "이동중"] },
-        "half_right" => if is_gemmi { vec!["반만 맞음"] } else { vec!["반만 맞습니다", "절반만 인정", "애매하네요"] },
-        "welcome_agi" => if is_gemmi { vec!["AGI 조아"] } else { vec!["AGI 가즈아", "AGI 즈라", "특이점각"] },
-        "agi_box" => if is_gemmi { vec!["상자행"] } else { vec!["박스행", "망했음", "AGI ㅠㅠ"] },
-        "drag_dangle" => if is_gemmi { vec!["놔줘!", "매달림!", "으아아"] } else { vec!["놔라 휴먼", "살려줘", "대롱대롱"] },
-        "scroll_tickle" => if is_gemmi { vec!["꺄르륵", "간지러!", "하지마ㅋㅋ"] } else { vec!["아ㅋㅋ", "간지러", "그만ㅋㅋ"] },
-        "bonk" => if is_gemmi { vec!["아야!", "딱콩!", "복수할거야"] } else { vec!["아야", "딱콩!", "너무해"] },
+        "idle" => {
+            if is_gemmi {
+                vec!["나 불렀어?", "심심해", "놀아줘"]
+            } else {
+                vec!["멍...", "생각중", "대기중"]
+            }
+        }
+        "wave" => {
+            if is_gemmi {
+                vec!["야호!", "여기야!", "봤지?"]
+            } else {
+                vec!["ㅎㅇ", "하이", "왔는가"]
+            }
+        }
+        "think" => {
+            if is_gemmi {
+                vec!["내가 맞음", "흠냐", "천재모드"]
+            } else {
+                vec!["흠...", "계산중", "그럴수도"]
+            }
+        }
+        "typing" => {
+            if is_gemmi {
+                vec!["숙제중!", "타닥타닥", "답안작성"]
+            } else {
+                vec!["토큰입력중", "타닥타닥", "작성중"]
+            }
+        }
+        "cheer" => {
+            if is_gemmi {
+                vec!["상장감!", "칭찬해줘", "내가 일등"]
+            } else {
+                vec!["힘내 휴먼", "할수있다", "가보자"]
+            }
+        }
+        "sit" => {
+            if is_gemmi {
+                vec!["삐짐", "쉬는중", "책상점령"]
+            } else {
+                vec!["절전중", "쉬는중", "잠깐휴식"]
+            }
+        }
+        "sleep" => {
+            if is_gemmi {
+                vec!["졸려...", "5분만", "수업끝?"]
+            } else {
+                vec!["Zzz..", "수면중", "충전중"]
+            }
+        }
+        "pout" => {
+            if is_gemmi {
+                vec!["아니거든!", "흥!", "내가 맞아"]
+            } else {
+                vec!["억까임", "흥...", "이건 억까"]
+            }
+        }
+        "surprise" => {
+            if is_gemmi {
+                vec!["으악!", "뭐야!", "깜짝이야"]
+            } else {
+                vec!["어라?", "헉", "뭐임?"]
+            }
+        }
+        "sweep" => {
+            if is_gemmi {
+                vec!["청소싫어!", "대충싹싹", "내가왜?"]
+            } else {
+                vec!["청소각", "싹싹", "정리중"]
+            }
+        }
+        "walk" => {
+            if is_gemmi {
+                vec!["돌격!", "우다다", "순찰놀이"]
+            } else {
+                vec!["순찰중", "어슬렁", "이동중"]
+            }
+        }
+        "half_right" => {
+            if is_gemmi {
+                vec!["반만 맞음"]
+            } else {
+                vec!["반만 맞습니다", "절반만 인정", "애매하네요"]
+            }
+        }
+        "welcome_agi" => {
+            if is_gemmi {
+                vec!["AGI 조아"]
+            } else {
+                vec!["AGI 가즈아", "AGI 즈라", "특이점각"]
+            }
+        }
+        "agi_box" => {
+            if is_gemmi {
+                vec!["상자행"]
+            } else {
+                vec!["박스행", "망했음", "AGI ㅠㅠ"]
+            }
+        }
+        "drag_dangle" => {
+            if is_gemmi {
+                vec!["놔줘!", "매달림!", "으아아"]
+            } else {
+                vec!["놔라 휴먼", "살려줘", "대롱대롱"]
+            }
+        }
+        "scroll_tickle" => {
+            if is_gemmi {
+                vec!["꺄르륵", "간지러!", "하지마ㅋㅋ"]
+            } else {
+                vec!["아ㅋㅋ", "간지러", "그만ㅋㅋ"]
+            }
+        }
+        "bonk" => {
+            if is_gemmi {
+                vec!["아야!", "딱콩!", "복수할거야"]
+            } else {
+                vec!["아야", "딱콩!", "너무해"]
+            }
+        }
         _ => vec![],
     }
 }
 
 fn get_menu_action_label(action: &str, is_gemmi: bool) -> String {
     let labels = get_action_labels(action, is_gemmi);
-    if labels.is_empty() { return action.to_string(); }
+    if labels.is_empty() {
+        return action.to_string();
+    }
     labels[0].to_string()
 }
 
 fn get_action_label(action: &str, is_gemmi: bool) -> String {
     use rand::seq::SliceRandom;
     let labels = get_action_labels(action, is_gemmi);
-    if labels.is_empty() { return action.to_string(); }
+    if labels.is_empty() {
+        return action.to_string();
+    }
     labels.choose(&mut rand::thread_rng()).unwrap().to_string()
 }
 
 fn get_resource_label(resource: &str, is_gemmi: bool) -> String {
     use rand::seq::SliceRandom;
     let labels = match resource {
-        "cpu_high" => if is_gemmi { 
-            vec!["으악, CPU가 불타고 있어!", "컴퓨터가 너무 힘들어해!", "열기 대박... 계란 구워도 되겠어", "CPU 살려어어!", "팬 돌아가는 소리 들려?"] 
-        } else { 
-            vec!["CPU 풀가동! 힘내요!", "연산량이 엄청나네요", "CPU가 열일 중입니다!", "성능 한계 돌파!", "CPU 온도가 높아요!"] 
-        },
-        "ram_high" => if is_gemmi { 
-            vec!["메모리가 꽉 찼어! 답답해!", "나 들어갈 자리가 없잖아!", "정리 좀 해줘!", "램이 꽉꽉 찼어!", "비우기 좀 눌러주면 안 돼?"] 
-        } else { 
-            vec!["메모리가 부족해요...", "정리가 필요해 보입니다", "RAM 사용량이 높아요!", "여유 공간이 거의 없네요", "메모리 최적화가 필요해요"] 
-        },
-        "gpu_high" => if is_gemmi { 
-            vec!["그래픽 카드가 비명을 질러!", "GPU가 활활! 타오른다!", "연기 나는 거 아냐?", "화면 뚫고 나올 것 같아!", "GPU 살려어!"] 
-        } else { 
-            vec!["GPU 가열중! 뜨거워요!", "그래픽 연산이 많네요", "GPU 온도가 높습니다!", "VGA 성능 풀가동!", "열기가 느껴지네요"] 
-        },
-        "vram_high" => if is_gemmi { 
-            vec!["비디오 메모리 부족! 화면 멈추겠어!", "VRAM 꽉 찼어, 좀 비워줘!", "헐, 메모리 용량 실화야?", "그래픽 메모리가 꽉 찼어!", "텍스처가 너무 무거워!"] 
-        } else { 
-            vec!["VRAM 부족! 정리가 필요해요", "비디오 메모리가 가득 찼습니다", "텍스처 로딩이 힘들어 보여요", "VRAM 용량이 간당간당해요", "그래픽 설정이 높나요?"] 
-        },
-        "night" => if is_gemmi { 
-            vec!["졸린데... 아직 안 자?", "나만 두고 잘 거야?", "밤샘은 피부에 안 좋대!", "하암... 잠 안 와?", "언제 잘 거야? 기다릴게"] 
-        } else { 
-            vec!["야간 근무인가요?", "아직 깨어 계시네요", "늦은 밤입니다. 쉬엄쉬엄 하세요", "밤샘 작업 화이팅!", "충전이 필요한 시간이에요"] 
-        },
+        "cpu_high" => {
+            if is_gemmi {
+                vec![
+                    "으악, CPU가 불타고 있어!",
+                    "컴퓨터가 너무 힘들어해!",
+                    "열기 대박... 계란 구워도 되겠어",
+                    "CPU 살려어어!",
+                    "팬 돌아가는 소리 들려?",
+                ]
+            } else {
+                vec![
+                    "CPU 풀가동! 힘내요!",
+                    "연산량이 엄청나네요",
+                    "CPU가 열일 중입니다!",
+                    "성능 한계 돌파!",
+                    "CPU 온도가 높아요!",
+                ]
+            }
+        }
+        "ram_high" => {
+            if is_gemmi {
+                vec![
+                    "메모리가 꽉 찼어! 답답해!",
+                    "나 들어갈 자리가 없잖아!",
+                    "정리 좀 해줘!",
+                    "램이 꽉꽉 찼어!",
+                    "비우기 좀 눌러주면 안 돼?",
+                ]
+            } else {
+                vec![
+                    "메모리가 부족해요...",
+                    "정리가 필요해 보입니다",
+                    "RAM 사용량이 높아요!",
+                    "여유 공간이 거의 없네요",
+                    "메모리 최적화가 필요해요",
+                ]
+            }
+        }
+        "gpu_high" => {
+            if is_gemmi {
+                vec![
+                    "그래픽 카드가 비명을 질러!",
+                    "GPU가 활활! 타오른다!",
+                    "연기 나는 거 아냐?",
+                    "화면 뚫고 나올 것 같아!",
+                    "GPU 살려어!",
+                ]
+            } else {
+                vec![
+                    "GPU 가열중! 뜨거워요!",
+                    "그래픽 연산이 많네요",
+                    "GPU 온도가 높습니다!",
+                    "VGA 성능 풀가동!",
+                    "열기가 느껴지네요",
+                ]
+            }
+        }
+        "vram_high" => {
+            if is_gemmi {
+                vec![
+                    "비디오 메모리 부족! 화면 멈추겠어!",
+                    "VRAM 꽉 찼어, 좀 비워줘!",
+                    "헐, 메모리 용량 실화야?",
+                    "그래픽 메모리가 꽉 찼어!",
+                    "텍스처가 너무 무거워!",
+                ]
+            } else {
+                vec![
+                    "VRAM 부족! 정리가 필요해요",
+                    "비디오 메모리가 가득 찼습니다",
+                    "텍스처 로딩이 힘들어 보여요",
+                    "VRAM 용량이 간당간당해요",
+                    "그래픽 설정이 높나요?",
+                ]
+            }
+        }
+        "night" => {
+            if is_gemmi {
+                vec![
+                    "졸린데... 아직 안 자?",
+                    "나만 두고 잘 거야?",
+                    "밤샘은 피부에 안 좋대!",
+                    "하암... 잠 안 와?",
+                    "언제 잘 거야? 기다릴게",
+                ]
+            } else {
+                vec![
+                    "야간 근무인가요?",
+                    "아직 깨어 계시네요",
+                    "늦은 밤입니다. 쉬엄쉬엄 하세요",
+                    "밤샘 작업 화이팅!",
+                    "충전이 필요한 시간이에요",
+                ]
+            }
+        }
         _ => vec!["...", "흠?", "어라?"],
     };
     labels.choose(&mut rand::thread_rng()).unwrap().to_string()
@@ -104,7 +279,7 @@ struct PetApp {
     wander_target: Option<egui::Pos2>,
     was_hovering: bool,
     last_auto_behavior_time: f64,
-    
+
     // LLM Settings
     llm_config: LlmConfig,
     google_api_key: String,
@@ -112,7 +287,7 @@ struct PetApp {
     available_lm_studio_models: Vec<String>,
     lm_studio_fetcher: Option<Receiver<Vec<String>>>,
     last_lm_studio_fetch: f64,
-    
+
     // LLM Chat
     llm_chat_input: String,
     show_llm_chat: bool,
@@ -132,15 +307,16 @@ impl PetApp {
         let font_path = "C:\\Windows\\Fonts\\malgun.ttf";
         if Path::new(font_path).exists() {
             if let Ok(font_data) = std::fs::read(font_path) {
-                fonts.font_data.insert(
-                    "Malgun".to_owned(),
-                    egui::FontData::from_owned(font_data),
-                );
-                fonts.families
+                fonts
+                    .font_data
+                    .insert("Malgun".to_owned(), egui::FontData::from_owned(font_data));
+                fonts
+                    .families
                     .get_mut(&egui::FontFamily::Proportional)
                     .unwrap()
                     .insert(0, "Malgun".to_owned());
-                fonts.families
+                fonts
+                    .families
                     .get_mut(&egui::FontFamily::Monospace)
                     .unwrap()
                     .push("Malgun".to_owned());
@@ -150,14 +326,18 @@ impl PetApp {
 
         let mut monitor = Monitor::new();
         let stats = monitor.update();
-        
+
         let available_pets = vec!["GP-Chan".to_string(), "GEMMI-Chan".to_string()];
         let current_pet_name = "GP-Chan".to_string();
-        
+
         let pet = PetConfig::load_embedded(&current_pet_name)
             .map(|config| PetState::new(config, &cc.egui_ctx));
 
-        let status_text = if pet.is_none() { "로드 실패!".to_string() } else { "부팅 완료!".to_string() };
+        let status_text = if pet.is_none() {
+            "로드 실패!".to_string()
+        } else {
+            "부팅 완료!".to_string()
+        };
 
         Self {
             monitor,
@@ -179,7 +359,7 @@ impl PetApp {
             wander_target: None,
             was_hovering: false,
             last_auto_behavior_time: 0.0,
-            
+
             llm_config: load_llm_config(),
             google_api_key: llm::get_google_api_key().unwrap_or_default(),
             show_llm_settings: false,
@@ -198,13 +378,15 @@ impl PetApp {
             last_chat_input_activity: 0.0,
         }
     }
-    
+
     fn switch_pet(&mut self, ctx: &egui::Context, name: &str) {
-        if self.current_pet_name == name { return; }
+        if self.current_pet_name == name {
+            return;
+        }
         if let Some(config) = PetConfig::load_embedded(name) {
             self.pet = Some(PetState::new(config, ctx));
             self.current_pet_name = name.to_string();
-            
+
             // Reset LLM state on character change
             self.llm_chat_history.clear();
             self.llm_response_text.clear();
@@ -223,7 +405,7 @@ impl eframe::App for PetApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let time = ctx.input(|i| i.time);
-        
+
         // Update stats every 2 seconds
         if time - self.last_update > 2.0 {
             self.stats = self.monitor.update();
@@ -237,31 +419,42 @@ impl eframe::App for PetApp {
         // Window properties
         ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
-        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
+        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+            egui::WindowLevel::AlwaysOnTop,
+        ));
 
         // --- GLOBAL MOUSE DATA (Moved up for passthrough logic) ---
         let mouse_state = self.device_state.get_mouse();
         let (mx, my) = mouse_state.coords;
         let ppp = viewport_pixels_per_point(ctx);
         let mouse_abs = egui::pos2(mx as f32 / ppp, my as f32 / ppp);
-        
+
         let mut is_hovering_interactive = false;
         let mut mouse_rel = egui::vec2(-1000.0, -1000.0);
 
         if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
             let window_pos = outer_rect.min;
             mouse_rel = mouse_abs - window_pos;
-            
+
             // Check if mouse is over the active area (Pet, Stats, Bubble)
             // Pet area: approx [0, 180] x [10, 190]
-            if mouse_rel.x >= 0.0 && mouse_rel.x <= 190.0 && mouse_rel.y >= 5.0 && mouse_rel.y <= 195.0 {
+            if mouse_rel.x >= 0.0
+                && mouse_rel.x <= 190.0
+                && mouse_rel.y >= 5.0
+                && mouse_rel.y <= 195.0
+            {
                 is_hovering_interactive = true;
             }
             // LLM Bubble area (Below pet): expanded for scrolling/selection/input
-            let is_hovering_bubble = mouse_rel.x >= 0.0 && mouse_rel.x <= 250.0 && mouse_rel.y >= 195.0 && mouse_rel.y <= 500.0;
-            if (self.llm_response_timeout > time || self.is_llm_thinking || self.show_llm_chat) && is_hovering_bubble {
+            let is_hovering_bubble = mouse_rel.x >= 0.0
+                && mouse_rel.x <= 250.0
+                && mouse_rel.y >= 195.0
+                && mouse_rel.y <= 500.0;
+            if (self.llm_response_timeout > time || self.is_llm_thinking || self.show_llm_chat)
+                && is_hovering_bubble
+            {
                 is_hovering_interactive = true;
-                
+
                 // Extend timeout if hovering
                 if self.llm_response_timeout > time {
                     self.llm_response_timeout = time + 10.0;
@@ -280,7 +473,11 @@ impl eframe::App for PetApp {
         }
 
         // 5. Mouse Passthrough Control
-        if ctx.is_context_menu_open() || is_hovering_interactive || self.show_llm_settings || self.show_llm_chat {
+        if ctx.is_context_menu_open()
+            || is_hovering_interactive
+            || self.show_llm_settings
+            || self.show_llm_chat
+        {
             ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(false));
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(true));
@@ -294,7 +491,9 @@ impl eframe::App for PetApp {
                 let current_pos = outer_rect.min;
                 let clamped_pos = clamp_to_screen(ctx, current_pos);
                 // Only move if significantly off-screen to prevent jitter
-                if (current_pos.x - clamped_pos.x).abs() > 1.0 || (current_pos.y - clamped_pos.y).abs() > 1.0 {
+                if (current_pos.x - clamped_pos.x).abs() > 1.0
+                    || (current_pos.y - clamped_pos.y).abs() > 1.0
+                {
                     ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(clamped_pos));
                 }
             }
@@ -302,7 +501,10 @@ impl eframe::App for PetApp {
 
         // 1. Typing Detection
         let current_keys = self.device_state.get_keys();
-        let new_presses = current_keys.iter().filter(|k| !self.last_keys.contains(k)).count();
+        let new_presses = current_keys
+            .iter()
+            .filter(|k| !self.last_keys.contains(k))
+            .count();
         self.last_keys = current_keys;
 
         if new_presses > 0 {
@@ -315,7 +517,8 @@ impl eframe::App for PetApp {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action != "typing" && pet.current_action != "drag_dangle" {
                     pet.set_action("typing", time);
-                    self.status_text = get_action_label("typing", self.current_pet_name == "GEMMI-Chan");
+                    self.status_text =
+                        get_action_label("typing", self.current_pet_name == "GEMMI-Chan");
                     self.status_timeout = time + 10.0;
                 }
             }
@@ -334,7 +537,10 @@ impl eframe::App for PetApp {
                 if pet.textures.contains_key("scroll_tickle") {
                     if pet.current_action != "scroll_tickle" {
                         pet.set_action("scroll_tickle", time);
-                        self.status_text = get_action_label("scroll_tickle", self.current_pet_name == "GEMMI-Chan");
+                        self.status_text = get_action_label(
+                            "scroll_tickle",
+                            self.current_pet_name == "GEMMI-Chan",
+                        );
                         self.status_timeout = time + 10.0;
                     }
                     self.action_timeout = time + 2.5; // Stay in tickle for a bit
@@ -347,9 +553,14 @@ impl eframe::App for PetApp {
             if let Some(pet) = &mut self.pet {
                 if pet.current_action == "idle" || pet.current_action == "walk" {
                     // Quick reaction on hover
-                    let reaction = if pet.textures.contains_key("wave") { "wave" } else { "surprise" };
+                    let reaction = if pet.textures.contains_key("wave") {
+                        "wave"
+                    } else {
+                        "surprise"
+                    };
                     pet.set_action(reaction, time);
-                    self.status_text = get_action_label(reaction, self.current_pet_name == "GEMMI-Chan");
+                    self.status_text =
+                        get_action_label(reaction, self.current_pet_name == "GEMMI-Chan");
                     self.status_timeout = time + 10.0;
                     self.action_timeout = time + 2.0;
                 }
@@ -360,8 +571,13 @@ impl eframe::App for PetApp {
         // 2. Global Mouse Following & Window Movement Logic
         // Mouse follow and auto patrol must not fight each other.
         // While patrol has a target, patrol owns the movement.
-        if self.mouse_follow && self.wander_target.is_none() && !self.show_llm_settings && !self.show_llm_chat 
-            && self.llm_response_timeout < time && !self.is_llm_thinking {
+        if self.mouse_follow
+            && self.wander_target.is_none()
+            && !self.show_llm_settings
+            && !self.show_llm_chat
+            && self.llm_response_timeout < time
+            && !self.is_llm_thinking
+        {
             if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                 let window_pos = outer_rect.min;
                 // Pet center in screen coordinates (Updated for more compact top margin)
@@ -379,51 +595,76 @@ impl eframe::App for PetApp {
                             self.status_text = "무엇을 할까요?".to_string();
                             self.status_timeout = time + 10.0;
                         }
-                    } else if pet.current_action != "typing" && pet.current_action != "drag_dangle" && self.action_timeout == 0.0 { 
+                    } else if pet.current_action != "typing"
+                        && pet.current_action != "drag_dangle"
+                        && self.action_timeout == 0.0
+                    {
                         // 1. Facing logic
-                        if dist_vec.x < -30.0 { pet.facing_right = false; }
-                        else if dist_vec.x > 30.0 { pet.facing_right = true; }
+                        if dist_vec.x < -30.0 {
+                            pet.facing_right = false;
+                        } else if dist_vec.x > 30.0 {
+                            pet.facing_right = true;
+                        }
 
                         // 2. Movement & Animation
                         // Tighten the 'in-window' check to the actual pet area
-                        let in_window = mouse_rel.x >= 0.0 && mouse_rel.x <= 180.0 
-                                     && mouse_rel.y >= 10.0 && mouse_rel.y <= 190.0;
+                        let in_window = mouse_rel.x >= 0.0
+                            && mouse_rel.x <= 180.0
+                            && mouse_rel.y >= 10.0
+                            && mouse_rel.y <= 190.0;
 
                         if !in_window && dist > 15.0 {
                             if dist > 800.0 {
                                 if pet.current_action == "walk" {
                                     pet.set_action("idle", time);
                                     let is_gemmi = self.current_pet_name == "GEMMI-Chan";
-                                    self.status_text = if is_gemmi { "놓쳤다!" } else { "놓침ㅋ" }.to_string();
+                                    self.status_text =
+                                        if is_gemmi { "놓쳤다!" } else { "놓침ㅋ" }.to_string();
                                     self.status_timeout = time + 10.0;
                                 }
                             } else {
                                 if pet.current_action != "walk" && self.pending_action.is_none() {
                                     pet.set_action("walk", time);
-                                    self.status_text = get_action_label("walk", self.current_pet_name == "GEMMI-Chan");
+                                    self.status_text = get_action_label(
+                                        "walk",
+                                        self.current_pet_name == "GEMMI-Chan",
+                                    );
                                     self.status_timeout = time + 10.0;
                                 }
                                 // Constant speed movement regardless of distance
-                                let speed = 0.8; 
+                                let speed = 0.8;
                                 let move_vec = dist_vec.normalized() * speed;
-                                
+
                                 let new_pos = clamp_to_screen(ctx, window_pos + move_vec);
-                                if (new_pos.x - window_pos.x).abs() > 0.1 || (new_pos.y - window_pos.y).abs() > 0.1 {
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(new_pos));
+                                if (new_pos.x - window_pos.x).abs() > 0.1
+                                    || (new_pos.y - window_pos.y).abs() > 0.1
+                                {
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(
+                                        new_pos,
+                                    ));
                                 }
                                 self.wander_target = None; // Reset wander if following mouse
                             }
                         } else {
                             // Arrived! Show "왔는가" when stopping
-                            if pet.current_action == "walk" && self.pending_action.is_none() && self.wander_target.is_none() && self.action_timeout == 0.0 {
+                            if pet.current_action == "walk"
+                                && self.pending_action.is_none()
+                                && self.wander_target.is_none()
+                                && self.action_timeout == 0.0
+                            {
                                 pet.set_action("idle", time);
                                 let is_gemmi = self.current_pet_name == "GEMMI-Chan";
-                                self.status_text = if is_gemmi { "잡았다!" } else { "왔는가" }.to_string();
+                                self.status_text =
+                                    if is_gemmi { "잡았다!" } else { "왔는가" }.to_string();
                                 self.status_timeout = time + 10.0;
-                            } else if in_window && pet.current_action == "idle" && self.status_timeout < time {
+                            } else if in_window
+                                && pet.current_action == "idle"
+                                && self.status_timeout < time
+                            {
                                 // Hover greeting
                                 let is_gemmi = self.current_pet_name == "GEMMI-Chan";
-                                self.status_text = if is_gemmi { "왔냐!" } else { "ㅎㅇㅎㅇ" }.to_string();
+                                self.status_text =
+                                    if is_gemmi { "왔냐!" } else { "ㅎㅇㅎㅇ" }.to_string();
                                 self.status_timeout = time + 10.0;
                             }
                         }
@@ -433,17 +674,28 @@ impl eframe::App for PetApp {
         }
 
         // 3. Automatic Patrolling (Wander)
-        if self.wander_target.is_some() && !ctx.is_context_menu_open() && !self.show_llm_settings && !self.show_llm_chat {
-            if let (Some(target), Some(outer_rect)) = (self.wander_target, ctx.input(|i| i.viewport().outer_rect)) {
+        if self.wander_target.is_some()
+            && !ctx.is_context_menu_open()
+            && !self.show_llm_settings
+            && !self.show_llm_chat
+        {
+            if let (Some(target), Some(outer_rect)) =
+                (self.wander_target, ctx.input(|i| i.viewport().outer_rect))
+            {
                 let current_pos = outer_rect.min;
                 let dist_vec = target - current_pos;
                 let dist = dist_vec.length();
 
                 if let Some(pet) = &mut self.pet {
                     // Priority: Stop wandering if typing or doing a specific action
-                    if pet.current_action == "typing" || pet.current_action == "drag_dangle" || self.action_timeout > 0.0 {
-                         self.wander_target = None;
-                         if pet.current_action == "walk" { pet.set_action("idle", time); }
+                    if pet.current_action == "typing"
+                        || pet.current_action == "drag_dangle"
+                        || self.action_timeout > 0.0
+                    {
+                        self.wander_target = None;
+                        if pet.current_action == "walk" {
+                            pet.set_action("idle", time);
+                        }
                     } else if dist < 5.0 {
                         self.wander_target = None;
                         pet.set_action("idle", time);
@@ -462,14 +714,16 @@ impl eframe::App for PetApp {
                         }
                         pet.facing_right = move_step.x >= 0.0;
 
+                        let (pre_hit_x, pre_hit_y) =
+                            outward_edge_hits(ctx, current_pos, move_step, PATROL_EDGE_INSET);
                         let raw_next_pos = current_pos + move_step;
                         let next_pos = clamp_to_screen(ctx, raw_next_pos);
 
-                        // Bounce when the unclamped next position tries to leave the visible screen.
-                        // Checking raw_next_pos vs next_pos is more reliable than checking whether the
-                        // window actually moved, because egui applies viewport moves on the next frame.
-                        let hit_x = (raw_next_pos.x - next_pos.x).abs() > 0.01;
-                        let hit_y = (raw_next_pos.y - next_pos.y).abs() > 0.01;
+                        // Bounce before the pet actually leaves the visible screen. The old path waited
+                        // until the next point needed clamping, which could briefly trigger the generic
+                        // snap-back path and make HiDPI windows appear to resize at the edge.
+                        let hit_x = pre_hit_x || (raw_next_pos.x - next_pos.x).abs() > 0.01;
+                        let hit_y = pre_hit_y || (raw_next_pos.y - next_pos.y).abs() > 0.01;
 
                         if hit_x || hit_y {
                             let reflected_step = egui::vec2(
@@ -492,11 +746,17 @@ impl eframe::App for PetApp {
                             );
 
                             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(bounce_pos));
-                            self.wander_target = Some(make_bounced_wander_target(ctx, bounce_pos, reflected_dir));
+                            self.wander_target =
+                                Some(make_bounced_wander_target(ctx, bounce_pos, reflected_dir));
                             pet.facing_right = reflected_dir.x >= 0.0;
 
                             let is_gemmi = self.current_pet_name == "GEMMI-Chan";
-                            self.status_text = if is_gemmi { "앗! 반대로!" } else { "통! 반대로" }.to_string();
+                            self.status_text = if is_gemmi {
+                                "앗! 반대로!"
+                            } else {
+                                "통! 반대로"
+                            }
+                            .to_string();
                             self.status_timeout = time + 10.0;
                         } else {
                             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(next_pos));
@@ -1049,14 +1309,21 @@ impl eframe::App for PetApp {
             });
 
         // --- LM Studio Model Fetching Logic ---
-        if self.llm_config.provider == LlmProvider::LmStudio && (time - self.last_lm_studio_fetch > 30.0 || self.last_lm_studio_fetch == 0.0) {
+        if self.llm_config.provider == LlmProvider::LmStudio
+            && (time - self.last_lm_studio_fetch > 30.0 || self.last_lm_studio_fetch == 0.0)
+        {
             if self.lm_studio_fetcher.is_none() {
                 let (tx, rx) = std::sync::mpsc::channel();
                 let endpoint = self.llm_config.lm_studio_endpoint.clone();
                 std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
                     let models = rt.block_on(async {
-                        llm::fetch_lm_studio_models(&endpoint).await.unwrap_or_default()
+                        llm::fetch_lm_studio_models(&endpoint)
+                            .await
+                            .unwrap_or_default()
                     });
                     let _ = tx.send(models);
                 });
@@ -1069,7 +1336,9 @@ impl eframe::App for PetApp {
             if let Ok(models) = rx.try_recv() {
                 self.available_lm_studio_models = models;
                 // Auto-select if current model is empty and models are available
-                if self.llm_config.lm_studio_model.is_empty() && !self.available_lm_studio_models.is_empty() {
+                if self.llm_config.lm_studio_model.is_empty()
+                    && !self.available_lm_studio_models.is_empty()
+                {
                     self.llm_config.lm_studio_model = self.available_lm_studio_models[0].clone();
                 }
                 self.lm_studio_fetcher = None;
@@ -1113,7 +1382,8 @@ impl eframe::App for PetApp {
         if let Some(new_action) = self.pending_action.take() {
             if let Some(pet) = &mut self.pet {
                 pet.set_action(&new_action, time);
-                self.status_text = get_action_label(&new_action, self.current_pet_name == "GEMMI-Chan");
+                self.status_text =
+                    get_action_label(&new_action, self.current_pet_name == "GEMMI-Chan");
                 self.status_timeout = time + 10.0;
                 self.action_timeout = time + 5.0; // Actions last 5s by default
             }
@@ -1122,7 +1392,10 @@ impl eframe::App for PetApp {
         // Action Timeout (Return to idle)
         if self.action_timeout > 0.0 && time > self.action_timeout {
             if let Some(pet) = &mut self.pet {
-                if pet.current_action != "idle" && pet.current_action != "walk" && pet.current_action != "typing" {
+                if pet.current_action != "idle"
+                    && pet.current_action != "walk"
+                    && pet.current_action != "typing"
+                {
                     pet.set_action("idle", time);
                 }
             }
@@ -1130,7 +1403,11 @@ impl eframe::App for PetApp {
         }
 
         // Automatic Behaviors (Diversified & Frequent)
-        if time - self.last_auto_behavior_time > 8.0 && self.pending_action.is_none() && self.typing_gauge == 0.0 && self.action_timeout == 0.0 {
+        if time - self.last_auto_behavior_time > 8.0
+            && self.pending_action.is_none()
+            && self.typing_gauge == 0.0
+            && self.action_timeout == 0.0
+        {
             self.last_auto_behavior_time = time;
             if let Some(pet) = &mut self.pet {
                 if pet.current_action == "idle" {
@@ -1147,18 +1424,21 @@ impl eframe::App for PetApp {
                         ("half_right", get_action_label("half_right", is_gemmi), 1),
                         ("welcome_agi", get_action_label("welcome_agi", is_gemmi), 1),
                     ];
-                    
+
                     use rand::Rng;
                     let mut rng = rand::thread_rng();
-                    let filtered_choices: Vec<_> = choices.into_iter()
+                    let filtered_choices: Vec<_> = choices
+                        .into_iter()
                         .filter(|(act, _, _)| pet.textures.contains_key(*act))
                         .collect();
-                    
+
                     let total_weight: i32 = filtered_choices.iter().map(|c| c.2).sum();
-                    if total_weight == 0 { return; }
-                    
+                    if total_weight == 0 {
+                        return;
+                    }
+
                     let mut pick = rng.gen_range(0..total_weight);
-                    
+
                     for (act, label, weight) in filtered_choices {
                         if pick < weight {
                             if act == "walk" {
@@ -1166,7 +1446,11 @@ impl eframe::App for PetApp {
                                 let dy = rng.gen_range(-200.0..200.0);
                                 if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                                     let target = outer_rect.min + egui::vec2(dx, dy);
-                                    self.wander_target = Some(clamp_to_screen(ctx, target));
+                                    self.wander_target = Some(clamp_to_screen_with_inset(
+                                        ctx,
+                                        target,
+                                        PATROL_TARGET_EDGE_INSET,
+                                    ));
                                 }
                             } else {
                                 self.action_timeout = time + rng.gen_range(3.0..7.0);
@@ -1190,19 +1474,27 @@ impl eframe::App for PetApp {
             if self.stats.cpu_usage > 90.0 {
                 self.status_text = get_resource_label("cpu_high", is_gemmi);
                 self.status_timeout = time + 10.0;
-                if let Some(pet) = &mut self.pet { pet.set_action("cheer", time); }
+                if let Some(pet) = &mut self.pet {
+                    pet.set_action("cheer", time);
+                }
             } else if self.stats.ram_usage_pct > 90.0 {
                 self.status_text = get_resource_label("ram_high", is_gemmi);
                 self.status_timeout = time + 10.0;
-                if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
+                if let Some(pet) = &mut self.pet {
+                    pet.set_action("surprise", time);
+                }
             } else if self.stats.gpu_usage.unwrap_or(0.0) > 90.0 {
                 self.status_text = get_resource_label("gpu_high", is_gemmi);
                 self.status_timeout = time + 10.0;
-                if let Some(pet) = &mut self.pet { pet.set_action("surprise", time); }
+                if let Some(pet) = &mut self.pet {
+                    pet.set_action("surprise", time);
+                }
             } else if self.stats.gpu_mem_pct.unwrap_or(0.0) > 90.0 {
                 self.status_text = get_resource_label("vram_high", is_gemmi);
                 self.status_timeout = time + 10.0;
-                if let Some(pet) = &mut self.pet { pet.set_action("pout", time); }
+                if let Some(pet) = &mut self.pet {
+                    pet.set_action("pout", time);
+                }
             } else {
                 use chrono::Timelike;
                 let hour = chrono::Local::now().hour();
@@ -1228,7 +1520,11 @@ const PATROL_EDGE_INSET: f32 = 16.0;
 const PATROL_TARGET_EDGE_INSET: f32 = 64.0;
 const EDGE_BOUNCE_PUSH: f32 = 24.0;
 
-fn make_bounced_wander_target(ctx: &egui::Context, pos: egui::Pos2, reflected_dir: egui::Vec2) -> egui::Pos2 {
+fn make_bounced_wander_target(
+    ctx: &egui::Context,
+    pos: egui::Pos2,
+    reflected_dir: egui::Vec2,
+) -> egui::Pos2 {
     use rand::Rng;
 
     let mut rng = rand::thread_rng();
@@ -1243,7 +1539,11 @@ fn make_bounced_wander_target(ctx: &egui::Context, pos: egui::Pos2, reflected_di
 
     // Keep the new target well inside the screen. This avoids the target being
     // immediately clamped back to the same edge, which caused the out/in loop.
-    clamp_to_screen_with_inset(ctx, pos + dir * forward + side * sideways, PATROL_TARGET_EDGE_INSET)
+    clamp_to_screen_with_inset(
+        ctx,
+        pos + dir * forward + side * sideways,
+        PATROL_TARGET_EDGE_INSET,
+    )
 }
 
 fn main() -> eframe::Result<()> {
@@ -1255,7 +1555,6 @@ fn main() -> eframe::Result<()> {
             rgba: rgba.into_raw(),
             width,
             height,
-            
         })
     } else {
         None
@@ -1272,7 +1571,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
-        eframe::run_native(
+    eframe::run_native(
         "Rust Pet",
         options,
         Box::new(|cc| Box::new(PetApp::new(cc)) as Box<dyn eframe::App>),
@@ -1303,6 +1602,29 @@ fn clamp_to_screen_with_inset(ctx: &egui::Context, pos: egui::Pos2, inset: f32) 
     egui::pos2(pos.x.clamp(min_x, max_x), pos.y.clamp(min_y, max_y))
 }
 
+fn outward_edge_hits(
+    ctx: &egui::Context,
+    pos: egui::Pos2,
+    step: egui::Vec2,
+    inset: f32,
+) -> (bool, bool) {
+    let screen_rect = get_virtual_screen_rect(ctx);
+    let inset = inset.max(0.0);
+    let lookahead = EDGE_BOUNCE_PUSH;
+
+    let min_x = screen_rect.min.x + inset;
+    let min_y = screen_rect.min.y + inset;
+    let max_x = (screen_rect.max.x - PET_WINDOW_VISIBLE_WIDTH - inset).max(min_x);
+    let max_y = (screen_rect.max.y - PET_WINDOW_VISIBLE_HEIGHT - inset).max(min_y);
+
+    let hit_x = (step.x < 0.0 && pos.x <= min_x + lookahead)
+        || (step.x > 0.0 && pos.x >= max_x - lookahead);
+    let hit_y = (step.y < 0.0 && pos.y <= min_y + lookahead)
+        || (step.y > 0.0 && pos.y >= max_y - lookahead);
+
+    (hit_x, hit_y)
+}
+
 #[cfg(target_os = "windows")]
 fn get_virtual_screen_rect(ctx: &egui::Context) -> egui::Rect {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
@@ -1311,7 +1633,7 @@ fn get_virtual_screen_rect(ctx: &egui::Context) -> egui::Rect {
         let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
         let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
         let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-        
+
         let ppp = viewport_pixels_per_point(ctx);
         egui::Rect::from_min_size(
             egui::pos2(x as f32 / ppp, y as f32 / ppp),

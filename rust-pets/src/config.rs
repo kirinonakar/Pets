@@ -1,6 +1,6 @@
+use include_dir::{Dir, include_dir};
 use serde::Deserialize;
 use std::collections::HashMap;
-use include_dir::{include_dir, Dir};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Action {

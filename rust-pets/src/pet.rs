@@ -1,6 +1,6 @@
 use crate::config::PetConfig;
+use egui::{Context, TextureHandle};
 use std::collections::HashMap;
-use egui::{TextureHandle, Context};
 
 pub struct PetState {
     pub config: PetConfig,
@@ -15,7 +15,7 @@ pub struct PetState {
 impl PetState {
     pub fn new(config: PetConfig, ctx: &Context) -> Self {
         let mut textures = HashMap::new();
-        
+
         for (action_name, action) in &config.manifest.actions {
             let mut action_textures = Vec::new();
             for frame_path in &action.frames {
@@ -68,7 +68,7 @@ impl PetState {
                         if self.last_frame_time == 0.0 {
                             self.last_frame_time = time;
                         }
-                        
+
                         let elapsed = time - self.last_frame_time;
                         if elapsed >= duration {
                             let advance = (elapsed / duration).floor() as usize;
@@ -85,7 +85,9 @@ impl PetState {
 
     pub fn current_texture(&self) -> Option<&TextureHandle> {
         if let Some(frames) = self.textures.get(&self.current_action) {
-            if frames.is_empty() { return None; }
+            if frames.is_empty() {
+                return None;
+            }
             let idx = self.frame_index % frames.len();
             frames.get(idx)
         } else {
