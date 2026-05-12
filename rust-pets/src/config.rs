@@ -22,8 +22,8 @@ pub struct PetConfig {
     pub dir: &'static Dir<'static>,
 }
 
-static GP_CHAN_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../GP-Chan");
-static GEMMI_CHAN_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../GEMMI-Chan");
+static GP_CHAN_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../GP-Chan/assets/generated");
+static GEMMI_CHAN_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../GEMMI-Chan/assets/generated");
 
 impl PetConfig {
     pub fn load_embedded(name: &str) -> Option<Self> {
@@ -33,7 +33,7 @@ impl PetConfig {
             _ => return None,
         };
 
-        let manifest_file = dir.get_file("assets/generated/manifest.json")?;
+        let manifest_file = dir.get_file("manifest.json")?;
         let content = manifest_file.contents_utf8()?;
         let manifest: Manifest = serde_json::from_str(content).ok()?;
 

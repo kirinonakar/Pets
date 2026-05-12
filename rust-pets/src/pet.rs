@@ -19,8 +19,11 @@ impl PetState {
         for (action_name, action) in &config.manifest.actions {
             let mut action_textures = Vec::new();
             for frame_path in &action.frames {
+                // Strip "assets/generated/" prefix because our included dir starts from there
+                let actual_path = frame_path.strip_prefix("assets/generated/").unwrap_or(frame_path);
+                
                 // Load from embedded dir
-                if let Some(file) = config.dir.get_file(frame_path) {
+                if let Some(file) = config.dir.get_file(actual_path) {
                     if let Ok(image_data) = image::load_from_memory(file.contents()) {
                         let rgba = image_data.to_rgba8();
                         let pixels = rgba.as_flat_samples();
