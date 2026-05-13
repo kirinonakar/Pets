@@ -25,17 +25,15 @@ impl Default for LlmConfig {
             provider: LlmProvider::LmStudio,
             lm_studio_endpoint: "http://localhost:1234/v1".to_string(),
             lm_studio_model: String::new(),
-            google_model: "gemini-3.1-flash-lite-preview".to_string(),
+            google_model: "gemini-flash-lite-latest".to_string(),
         }
     }
 }
 
 pub const GOOGLE_MODELS: &[&str] = &[
-    "gemini-3.1-flash-lite-preview",
-    "gemini-3-flash-preview",
-    "gemini-3.1-pro-preview",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-flash-latest",
+    "gemini-pro-latest",
     "gemma-4-26b-a4b-it",
     "gemma-4-31b-it",
 ];
