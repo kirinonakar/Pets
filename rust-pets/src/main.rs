@@ -271,6 +271,7 @@ struct PetApp {
     status_timeout: f64,
     mouse_follow: bool,
     show_stats: bool,
+    enlarge_stats_graph: bool,
     pending_action: Option<String>,
     action_timeout: f64,
     device_state: DeviceState,
@@ -351,6 +352,7 @@ impl PetApp {
             status_timeout: 5.0,
             mouse_follow: true,
             show_stats: true,
+            enlarge_stats_graph: false,
             pending_action: None,
             action_timeout: 0.0,
             device_state: DeviceState::new(),
@@ -783,6 +785,10 @@ impl eframe::App for PetApp {
                     ui.label(egui::RichText::new("설정").strong());
                     ui.checkbox(&mut app.mouse_follow, "마우스 따라오기");
                     ui.checkbox(&mut app.show_stats, "그래프 표시");
+                    ui.add_enabled(
+                        app.show_stats,
+                        egui::Checkbox::new(&mut app.enlarge_stats_graph, "그래프 확대"),
+                    );
                     ui.separator();
                     
                     ui.label(egui::RichText::new("액션 선택").strong());
@@ -882,35 +888,83 @@ impl eframe::App for PetApp {
 
                                 // Stats Column attached to Pet
                                 if self.show_stats {
+                                    let graph_width =
+                                        if self.enlarge_stats_graph { 50.0 } else { 25.0 };
+                                    let graph_height =
+                                        if self.enlarge_stats_graph { 5.2 } else { 4.0 };
+                                    let graph_count = 2
+                                        + usize::from(self.stats.gpu_usage.is_some())
+                                        + usize::from(self.stats.gpu_mem_pct.is_some());
+                                    let graph_top_space = if self.enlarge_stats_graph {
+                                        50.0 - (graph_height - 4.0) * graph_count as f32
+                                    } else {
+                                        50.0
+                                    };
+
                                     ui.vertical(|ui| {
-                                        ui.add_space(50.0); // Move slightly up
+                                        ui.add_space(graph_top_space); // Keep enlarged graph anchored downward.
                                         egui::Frame::none()
                                             .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
                                             .rounding(5.0)
                                             .inner_margin(4.0)
                                             .show(ui, |ui| {
-                                                ui.set_max_width(25.0); // Reduce length (width)
+                                                ui.set_max_width(graph_width); // Reduce length (width)
                                                 ui.spacing_mut().item_spacing.y = 5.0;
 
-                                                fn mini_resource_bar(ui: &mut egui::Ui, label: &str, val: f32, color: egui::Color32) {
+                                                fn mini_resource_bar(
+                                                    ui: &mut egui::Ui,
+                                                    label: &str,
+                                                    val: f32,
+                                                    color: egui::Color32,
+                                                    width: f32,
+                                                    height: f32,
+                                                ) {
                                                     ui.vertical(|ui| {
                                                         ui.label(egui::RichText::new(label).size(8.0).color(egui::Color32::WHITE));
                                                         let progress = (val / 100.0).clamp(0.0, 1.0);
                                                         ui.add(egui::ProgressBar::new(progress)
                                                             .fill(color)
-                                                            .desired_height(4.0)
-                                                            .desired_width(25.0));
+                                                            .desired_height(height)
+                                                            .desired_width(width));
                                                     });
                                                 }
 
-                                                mini_resource_bar(ui, "CPU", self.stats.cpu_usage, egui::Color32::from_rgb(100, 200, 255));
-                                                mini_resource_bar(ui, "RAM", self.stats.ram_usage_pct, egui::Color32::from_rgb(100, 255, 150));
+                                                mini_resource_bar(
+                                                    ui,
+                                                    "CPU",
+                                                    self.stats.cpu_usage,
+                                                    egui::Color32::from_rgb(100, 200, 255),
+                                                    graph_width,
+                                                    graph_height,
+                                                );
+                                                mini_resource_bar(
+                                                    ui,
+                                                    "RAM",
+                                                    self.stats.ram_usage_pct,
+                                                    egui::Color32::from_rgb(100, 255, 150),
+                                                    graph_width,
+                                                    graph_height,
+                                                );
                                                 
                                                 if let Some(gpu) = self.stats.gpu_usage {
-                                                    mini_resource_bar(ui, "GPU", gpu, egui::Color32::from_rgb(200, 150, 255));
+                                                    mini_resource_bar(
+                                                        ui,
+                                                        "GPU",
+                                                        gpu,
+                                                        egui::Color32::from_rgb(200, 150, 255),
+                                                        graph_width,
+                                                        graph_height,
+                                                    );
                                                 }
                                                 if let Some(vram) = self.stats.gpu_mem_pct {
-                                                    mini_resource_bar(ui, "VRM", vram, egui::Color32::from_rgb(255, 200, 100));
+                                                    mini_resource_bar(
+                                                        ui,
+                                                        "VRM",
+                                                        vram,
+                                                        egui::Color32::from_rgb(255, 200, 100),
+                                                        graph_width,
+                                                        graph_height,
+                                                    );
                                                 }
                                             });
                                     });
