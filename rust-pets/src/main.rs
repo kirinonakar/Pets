@@ -716,11 +716,15 @@ impl eframe::App for PetApp {
                         }
                         pet.facing_right = move_step.x >= 0.0;
 
-                        let (pre_hit_x, pre_hit_y) =
-                            outward_pet_edge_hits(ctx, current_pos, move_step, PATROL_EDGE_INSET);
+                        let (pre_hit_x, pre_hit_y) = outward_patrol_edge_hits(
+                            ctx,
+                            current_pos,
+                            move_step,
+                            PATROL_EDGE_INSET,
+                        );
                         let raw_next_pos = current_pos + move_step;
                         let next_pos =
-                            clamp_pet_to_screen_with_inset(ctx, raw_next_pos, PATROL_EDGE_INSET);
+                            clamp_patrol_to_screen_with_inset(ctx, raw_next_pos, PATROL_EDGE_INSET);
 
                         // Bounce before the pet actually leaves the visible screen. The old path waited
                         // until the next point needed clamping, which could briefly trigger the generic
@@ -742,7 +746,7 @@ impl eframe::App for PetApp {
                             } else {
                                 egui::vec2(if hit_x { -move_step.x.signum() } else { 1.0 }, 0.0)
                             };
-                            let bounce_pos = clamp_pet_to_screen_with_inset(
+                            let bounce_pos = clamp_patrol_to_screen_with_inset(
                                 ctx,
                                 current_pos + reflected_dir * EDGE_BOUNCE_PUSH,
                                 PATROL_EDGE_INSET,
@@ -1501,7 +1505,7 @@ impl eframe::App for PetApp {
                                 let dy = rng.gen_range(-200.0..200.0);
                                 if let Some(outer_rect) = ctx.input(|i| i.viewport().outer_rect) {
                                     let target = outer_rect.min + egui::vec2(dx, dy);
-                                    self.wander_target = Some(clamp_pet_to_screen_with_inset(
+                                    self.wander_target = Some(clamp_patrol_to_screen_with_inset(
                                         ctx,
                                         target,
                                         PATROL_TARGET_EDGE_INSET,
@@ -1648,6 +1652,27 @@ fn clamp_pet_to_screen(ctx: &egui::Context, pos: egui::Pos2) -> egui::Pos2 {
 }
 
 fn clamp_pet_to_screen_with_inset(ctx: &egui::Context, pos: egui::Pos2, inset: f32) -> egui::Pos2 {
+    let bounds = pet_position_bounds(ctx, inset);
+    clamp_pos_to_bounds(pos, bounds)
+}
+
+fn clamp_patrol_to_screen_with_inset(
+    ctx: &egui::Context,
+    pos: egui::Pos2,
+    inset: f32,
+) -> egui::Pos2 {
+    let bounds = patrol_position_bounds(ctx, inset);
+    clamp_pos_to_bounds(pos, bounds)
+}
+
+fn clamp_pos_to_bounds(pos: egui::Pos2, bounds: egui::Rect) -> egui::Pos2 {
+    egui::pos2(
+        pos.x.clamp(bounds.min.x, bounds.max.x),
+        pos.y.clamp(bounds.min.y, bounds.max.y),
+    )
+}
+
+fn pet_position_bounds(ctx: &egui::Context, inset: f32) -> egui::Rect {
     let screen_rect = get_virtual_screen_rect(ctx);
     let inset = inset.max(0.0);
 
@@ -1656,28 +1681,38 @@ fn clamp_pet_to_screen_with_inset(ctx: &egui::Context, pos: egui::Pos2, inset: f
     let max_x = (screen_rect.max.x - PET_DRAW_OFFSET_X - PET_SPRITE_SIZE - inset).max(min_x);
     let max_y = (screen_rect.max.y - PET_DRAW_OFFSET_Y - PET_SPRITE_SIZE - inset).max(min_y);
 
-    egui::pos2(pos.x.clamp(min_x, max_x), pos.y.clamp(min_y, max_y))
+    egui::Rect::from_min_max(egui::pos2(min_x, min_y), egui::pos2(max_x, max_y))
 }
 
-fn outward_pet_edge_hits(
+fn patrol_position_bounds(ctx: &egui::Context, inset: f32) -> egui::Rect {
+    let screen_rect = get_virtual_screen_rect(ctx);
+    let inset = inset.max(0.0);
+    let mut bounds = pet_position_bounds(ctx, inset);
+
+    // Manual dragging may place the pet flush with the top edge, which needs the
+    // transparent viewport to extend above the monitor. During automatic patrol,
+    // keep the viewport origin itself on-screen so Windows does not briefly switch
+    // DPI scale while the pet is turning around at the edge.
+    bounds.min.x = bounds.min.x.max(screen_rect.min.x);
+    bounds.min.y = bounds.min.y.max(screen_rect.min.y);
+    bounds.max.x = bounds.max.x.max(bounds.min.x);
+    bounds.max.y = bounds.max.y.max(bounds.min.y);
+    bounds
+}
+
+fn outward_patrol_edge_hits(
     ctx: &egui::Context,
     pos: egui::Pos2,
     step: egui::Vec2,
     inset: f32,
 ) -> (bool, bool) {
-    let screen_rect = get_virtual_screen_rect(ctx);
-    let inset = inset.max(0.0);
+    let bounds = patrol_position_bounds(ctx, inset);
     let lookahead = EDGE_BOUNCE_PUSH;
 
-    let min_x = screen_rect.min.x - PET_DRAW_OFFSET_X + inset;
-    let min_y = screen_rect.min.y - PET_DRAW_OFFSET_Y + inset;
-    let max_x = (screen_rect.max.x - PET_DRAW_OFFSET_X - PET_SPRITE_SIZE - inset).max(min_x);
-    let max_y = (screen_rect.max.y - PET_DRAW_OFFSET_Y - PET_SPRITE_SIZE - inset).max(min_y);
-
-    let hit_x = (step.x < 0.0 && pos.x <= min_x + lookahead)
-        || (step.x > 0.0 && pos.x >= max_x - lookahead);
-    let hit_y = (step.y < 0.0 && pos.y <= min_y + lookahead)
-        || (step.y > 0.0 && pos.y >= max_y - lookahead);
+    let hit_x = (step.x < 0.0 && pos.x <= bounds.min.x + lookahead)
+        || (step.x > 0.0 && pos.x >= bounds.max.x - lookahead);
+    let hit_y = (step.y < 0.0 && pos.y <= bounds.min.y + lookahead)
+        || (step.y > 0.0 && pos.y >= bounds.max.y - lookahead);
 
     (hit_x, hit_y)
 }
