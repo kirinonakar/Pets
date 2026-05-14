@@ -1569,7 +1569,32 @@ impl eframe::App for PetApp {
             }
         }
 
-        ctx.request_repaint();
+        // Smart repaint: use a fast rate when active, slow rate when idle.
+        // This dramatically reduces CPU usage compared to unconditional request_repaint().
+        let needs_fast_repaint = {
+            let is_animating = self.pet.as_ref().map_or(false, |p| {
+                p.current_action != "idle" && p.current_action != "sit" && p.current_action != "sleep"
+            });
+            let is_moving = self.wander_target.is_some()
+                || (self.mouse_follow && self.pet.as_ref().map_or(false, |p| p.current_action == "walk"));
+            let is_interacting = is_hovering_interactive
+                || ctx.is_context_menu_open()
+                || self.show_llm_settings
+                || self.show_llm_chat
+                || self.is_llm_thinking;
+            let is_typing = self.typing_gauge > 0.0;
+            let has_active_timeout = self.action_timeout > 0.0 && time < self.action_timeout;
+
+            is_animating || is_moving || is_interacting || is_typing || has_active_timeout
+        };
+
+        if needs_fast_repaint {
+            // ~30 FPS for smooth animation and interaction
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        } else {
+            // ~4 FPS for idle state: enough for speech bubble timeouts and auto-behavior checks
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 }
 
